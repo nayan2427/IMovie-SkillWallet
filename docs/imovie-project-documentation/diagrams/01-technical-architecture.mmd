@@ -1,0 +1,90 @@
+flowchart TB
+    %% =========================================================================
+    %% iMovie (IMovies) — Technical Architecture Diagram
+    %% =========================================================================
+
+    subgraph ClientTier["Frontend Client Tier (Cloudflare Pages / Workers CDN)"]
+        direction TB
+        SPA["React 18 SPA (Vite 6.4.5)"]
+        Router["React Router v7 (Client Routing & Route Guards)"]
+        ReduxStore["Redux Toolkit Store (authSlice, bookingSlice)"]
+        AxiosClient["Axios HTTP Client (Bearer JWT, X-Requested-With, X-IMovies-Client)"]
+        SocketClient["Socket.IO Client (Auto-reconnect, show:showId rooms)"]
+
+        SPA --> Router
+        Router --> ReduxStore
+        Router --> AxiosClient
+        Router --> SocketClient
+    end
+
+    subgraph BackendTier["Backend Web Service Tier (Render / Node.js 22 LTS)"]
+        direction TB
+        
+        subgraph SecurityPipeline["Security & Ingress Pipeline"]
+            Proxy["Trust Reverse Proxy (1 Hop)"]
+            Helmet["Helmet (CORP Policy: cross-origin)"]
+            CORS["CORS (Strict Dynamic Origin Whitelist)"]
+            BodyLimit["express.json (100kb limit & rawBody verify)"]
+            Sanitizer["express-mongo-sanitize (Strip $ and .)"]
+            RateLimiters["express-rate-limit (api, auth, hold, payment)"]
+        end
+
+        subgraph CoreServer["Express 4.19 Router & Dispatcher (/api/v1)"]
+            AuthRoutes["/auth (Register, Verify, Login, Reset, Profile)"]
+            MovieRoutes["/movies (Catalog, Search, Upload, CRUD)"]
+            TheatreRoutes["/theatres & /screens (Venues, Layouts)"]
+            ShowRoutes["/shows (Scheduling & Overlap Prevention)"]
+            SeatRoutes["/shows/:showId/seats (Authoritative Seating)"]
+            BookingRoutes["/bookings (Hold, Order, Confirm, Cancel)"]
+            PaymentRoutes["/payments (Simulate, Webhooks)"]
+            AdminRoutes["/admin (Analytics, Users, Bookings)"]
+            UserRoutes["/users (In-App Notifications)"]
+        end
+
+        subgraph RealTimeEngine["Real-Time WebSocket Engine"]
+            SocketServer["Socket.IO 4.7.5 Server"]
+            ShowRooms["Room Management: show:{showId} (Rate-limited, max 10 rooms/conn)"]
+            SocketServer --- ShowRooms
+        end
+
+        subgraph DomainServices["Domain Service Layer"]
+            SeatService["SeatReservationService (Atomic Hold, Pricing, Expiry Release, Rollback)"]
+            PaymentService["PaymentService Adapter (Simulator & Razorpay HMAC Verification)"]
+            EmailService["EmailService (Dual Engine: Brevo HTTPS API & Nodemailer SMTP)"]
+            SeatExpiryWorker["SeatExpiryJob (Background Worker: 15-second interval)"]
+        end
+    end
+
+    subgraph PersistenceTier["Database & Storage Tier (MongoDB Atlas & Local FS)"]
+        MongoDB[("MongoDB Atlas Database\n(10 Mongoose Collections)")]
+        MediaStorage[("Media Storage Directory\n/server/uploads (nosniff header)")]
+    end
+
+    subgraph ExternalIntegrations["External Integration Tier"]
+        BrevoAPI["Brevo HTTPS API (https://api.brevo.com/v3/smtp/email)"]
+        SMTPRelay["Gmail SMTP / SES Relay (TLS 587/465)"]
+        RazorpayGateway["Razorpay Payments & Webhook API"]
+    end
+
+    %% Communication Flows
+    AxiosClient -->|"HTTPS REST (JSON Payload)"| Proxy
+    Proxy --> Helmet --> CORS --> BodyLimit --> Sanitizer --> RateLimiters
+    RateLimiters --> CoreServer
+
+    SocketClient <===>|"WSS Bi-directional (join-show, leave-show)"| SocketServer
+
+    CoreServer --> SeatService
+    CoreServer --> PaymentService
+    CoreServer --> EmailService
+    MovieRoutes -->|"Multipart Image Upload"| MediaStorage
+
+    SeatService -->|"Atomic updateMany (modifiedCount lock check)"| MongoDB
+    PaymentService -->|"Persist Transaction Records"| MongoDB
+    SeatExpiryWorker -->|"Periodic Expired Hold Sweep (15s)"| MongoDB
+    SeatExpiryWorker -->|"Broadcast 'seat-hold-released'"| SocketServer
+    SeatService -->|"Broadcast 'seat-hold-created' & 'booking-confirmed'"| SocketServer
+
+    EmailService -->|"HTTPS REST API (api-key)"| BrevoAPI
+    EmailService -->|"Nodemailer TLS Connection"| SMTPRelay
+    PaymentService -->|"Orders API & Refund Requests"| RazorpayGateway
+    RazorpayGateway -->|"Incoming Webhooks (HMAC verification)"| PaymentRoutes

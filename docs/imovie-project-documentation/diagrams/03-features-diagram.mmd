@@ -1,0 +1,65 @@
+flowchart TD
+    %% =========================================================================
+    %% iMovie (IMovies) — Feature Hierarchy & Implementation Status Map
+    %% =========================================================================
+
+    Root["IMovies Application Features"]
+
+    subgraph M1["1. Authentication & Identity Management"]
+        M1_1["[VERIFIED - Implemented]\nUser Registration with Password Complexity\n(Min 8 chars, Upper, Lower, Number, Symbol)"]
+        M1_2["[VERIFIED - Implemented]\nDual Email Verification\n(6-Digit OTP & 32-Byte Cryptographic Link)"]
+        M1_3["[VERIFIED - Implemented]\nBrevo HTTPS API & SMTP Email Transports\n(With Development Mock Fallback)"]
+        M1_4["[VERIFIED - Implemented]\nJWT Login with tokenVersion Tracking\n(Immediate Session Revocation on Logout)"]
+        M1_5["[VERIFIED - Implemented]\nForgot & Reset Password Flow\n(Cryptographic Token Hash & Expiration)"]
+        M1_6["[VERIFIED - Implemented]\nProfile Updates & Email Reverification\n(Resets verified status if email changed)"]
+        M1_7["[PLANNED - Future]\nOAuth2 Third-Party Social Login\n(Google, Apple Sign-In)"]
+    end
+
+    subgraph M2["2. Movie Catalog & Discovery"]
+        M2_1["[VERIFIED - Implemented]\nDynamic Catalog Search\n(Text Index with ReDoS Sanitization)"]
+        M2_2["[VERIFIED - Implemented]\nFilter by Status, Genre & Language\n(Now Showing, Coming Soon, Multi-select)"]
+        M2_3["[VERIFIED - Implemented]\nYouTube Trailer Preview Modal\n(Safe Domain Validation Regex)"]
+        M2_4["[VERIFIED - Implemented]\nMovie Details View\n(Cast, Certification, Duration, Synopsis)"]
+        M2_5["[PLANNED - Future]\nUser Movie Reviews & 5-Star Ratings"]
+    end
+
+    subgraph M3["3. Venues, Screens & Show Scheduling"]
+        M3_1["[VERIFIED - Implemented]\nTheatre Venue Discovery by City\n(Mumbai, Delhi, Bengaluru, Amenities)"]
+        M3_2["[VERIFIED - Implemented]\nAuditorium Formats & Layouts\n(IMAX, 4DX, Dolby Atmos, Tier Multipliers)"]
+        M3_3["[VERIFIED - Implemented]\nShow Scheduling with Overlap Prevention\n(Blocks conflicting shows on same screen)"]
+        M3_4["[VERIFIED - Implemented]\nAutomatic ShowSeat Generation\n(Generates per-show seat inventory on create)"]
+    end
+
+    subgraph M4["4. Real-Time Seat Reservation Engine"]
+        M4_1["[VERIFIED - Implemented]\nInteractive 2D Seating Grid\n(Curved screen, Aisle gaps, Silver/Gold/Platinum)"]
+        M4_2["[VERIFIED - Implemented]\nAuthoritative Show-Scoped Socket.IO Rooms\n(show:showId broadcast, connection limits)"]
+        M4_3["[VERIFIED - Implemented]\nAtomic Conditional Seat Hold\n(updateMany lock with concurrency rollback)"]
+        M4_4["[VERIFIED - Implemented]\nVisual 8-Minute Hold Countdown Timer\n(Client sync with server expiresAt)"]
+        M4_5["[VERIFIED - Implemented]\nBackground Hold Expiry Job\n(15-second sweep & lazy cleanup)"]
+    end
+
+    subgraph M5["5. Payments, Checkout & Ticketing"]
+        M5_1["[VERIFIED - Implemented]\nServer-Authoritative Pricing\n(Calculated server-side, flat ₹25 fee)"]
+        M5_2["[VERIFIED - Implemented]\nDevelopment Payment Sandbox Simulator\n(Card, UPI, NetBanking, simulated decline)"]
+        M5_3["[VERIFIED - Implemented]\nRazorpay Backend Integration\n(Order creation, HMAC verification, Refunds)"]
+        M5_4["[PARTIALLY IMPLEMENTED]\nStripe Payment Integration\n(Schema enum & config present, adapter stub)"]
+        M5_5["[VERIFIED - Implemented]\nIdempotent Webhook Handler\n(Replay protection via WebhookEvent)"]
+        M5_6["[VERIFIED - Implemented]\nPrintable E-Tickets with QR Code\n(Base64 verification QR code & print styling)"]
+        M5_7["[VERIFIED - Implemented]\n2-Hour Cutoff Cancellation Policy\n(Automatic seat release & refund tracking)"]
+        M5_8["[VERIFIED - Implemented]\nIn-App Notifications\n(Alerts for confirmation, cancellation, expiry)"]
+    end
+
+    subgraph M6["6. Administration Suite"]
+        M6_1["[VERIFIED - Implemented]\nExecutive Dashboard Analytics\n(Verified revenue from successful payments only)"]
+        M6_2["[VERIFIED - Implemented]\nMovie CRUD & Secure Media Upload\n(Multer image upload with nosniff)"]
+        M6_3["[VERIFIED - Implemented]\nTheatre & Screen Layout Configuration\n(Create venues, screens, and row seating)"]
+        M6_4["[VERIFIED - Implemented]\nCustomer Booking Audit & Admin Refund Override\n(Search bookings & override 2h cutoff)"]
+        M6_5["[VERIFIED - Implemented]\nUser Management & Suspension Toggle\n(View users & toggle active / suspended)"]
+    end
+
+    Root --> M1
+    Root --> M2
+    Root --> M3
+    Root --> M4
+    Root --> M5
+    Root --> M6

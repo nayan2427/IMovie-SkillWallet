@@ -1,0 +1,75 @@
+flowchart TD
+    %% =========================================================================
+    %% iMovie (IMovies) — End-to-End User Flow & Decision Points
+    %% =========================================================================
+
+    Start(["User Enters Application"]) --> Home["Browse HomePage or MoviesPage"]
+    Home --> SearchFilter["Search by Title, Genre, Language or Status"]
+    SearchFilter --> SelectMovie["Selects Movie & Views Details / Trailer"]
+    SelectMovie --> ChooseShow["Chooses Theatre, Format (IMAX/4DX) & Showtime"]
+    ChooseShow --> OpenSeatMap["Opens SeatSelectionPage (/book/:showId)"]
+
+    OpenSeatMap --> WSConnect["Client Connects to Socket.IO & Emits 'join-show'"]
+    WSConnect --> RenderSeats["Render Authoritative Live Seat Grid (Silver, Gold, Platinum)"]
+    RenderSeats --> SelectSeats["User Selects Up to 10 Seats"]
+
+    SelectSeats --> ClickHold{"Clicks 'Hold & Checkout'"}
+    
+    ClickHold --> CheckAuth{"Is User Authenticated\n& Email Verified?"}
+    
+    CheckAuth -- "No (Unauthenticated)" --> RedirectLogin["Redirect to /login?redirect=/book/:showId"]
+    RedirectLogin --> HasAccount{"Does User Have\nan Account?"}
+    
+    HasAccount -- "No" --> Register["Fill Register Form (Name, Email, Strong Password)"]
+    Register --> SubmitRegister["POST /api/v1/auth/register"]
+    SubmitRegister --> SendVerification["Server Sends Dual Verification (OTP + Link)"]
+    SendVerification --> VerifyPage["Navigate to /verify-email"]
+    VerifyPage --> SubmitOTP["Enter 6-Digit OTP or Click Email Link"]
+    SubmitOTP --> CheckOTP{"Is OTP / Token\nValid & Unexpired?"}
+    CheckOTP -- "No" --> OTPError["Display Error & Allow Resend (Cooldown 60s)"] --> VerifyPage
+    CheckOTP -- "Yes" --> MarkVerified["Account Verified (isEmailVerified: true)"] --> LoginPrompt
+
+    HasAccount -- "Yes" --> LoginPrompt["Enter Email & Password"]
+    LoginPrompt --> SubmitLogin["POST /api/v1/auth/login"]
+    SubmitLogin --> CheckCreds{"Valid Credentials & Active Account?"}
+    CheckCreds -- "No" --> LoginError["Display Error (Anti-enumeration message)"] --> LoginPrompt
+    CheckCreds -- "Yes (Email Unverified)" --> RedirectVerify["403 EMAIL_NOT_VERIFIED -> Redirect to /verify-email"] --> VerifyPage
+    CheckCreds -- "Yes (Valid)" --> StoreToken["Store JWT in localStorage & Redux\nRedirect to /book/:showId"] --> SelectSeats
+
+    CheckAuth -- "Yes" --> RequestHold["POST /api/v1/bookings/hold { showId, seats }"]
+    
+    RequestHold --> AtomicLock{"MongoDB updateMany:\nmodifiedCount == requestedCount?"}
+    
+    AtomicLock -- "No (Race Conflict)" --> RollbackHold["Rollback touched seats\nReturn 409 Conflict"]
+    RollbackHold --> ToastConflict["Show Toast: 'Seat reserved by another user'\nRefetch Authoritative Seats"] --> RenderSeats
+
+    AtomicLock -- "Yes (Locked)" --> CreatePendingBooking["Create Booking (status: pending, expiresAt: now + 8m)\nGenerate holdToken"]
+    CreatePendingBooking --> WSBroadcastHold["Broadcast 'seat-hold-created' to show:showId"]
+    WSBroadcastHold --> OpenPaymentModal["Open PaymentModal with 8-Minute Countdown Timer"]
+
+    OpenPaymentModal --> SelectPayMethod["Select Payment Method (Card, UPI, NetBanking)"]
+    SelectPayMethod --> SubmitPayment["Clicks 'Pay Now'"]
+    SubmitPayment --> CreateOrder["POST /bookings/create-order & /payments/simulate"]
+
+    CreateOrder --> ConfirmRequest["POST /api/v1/bookings/confirm { bookingId, paymentId }"]
+    
+    ConfirmRequest --> CheckHoldValidity{"Has 8-minute Hold Expired\nor Seats No Longer Valid?"}
+    
+    CheckHoldValidity -- "Yes (Hold Expired)" --> TriggerRefund["paymentService.refundPayment()\nMark Booking EXPIRED (410)"]
+    TriggerRefund --> ReleaseSeats["Release Seats to AVAILABLE\nAlert Customer of Full Refund"] --> OpenSeatMap
+
+    CheckHoldValidity -- "No (Valid)" --> AtomicBook["Atomically Update ShowSeat status: BOOKED\nUpdate Booking status: confirmed\nInsert Payment Audit Record"]
+    AtomicBook --> GenerateQR["Generate Base64 QR Code Data URL"]
+    GenerateQR --> SendConfirmEmail["Dispatch Confirmation Email (Brevo / SMTP)\nInsert In-App Notification"]
+    SendConfirmEmail --> WSBroadcastConfirmed["Broadcast 'booking-confirmed' to show:showId"]
+    WSBroadcastConfirmed --> BookingSuccessPage["Redirect to /booking-confirmation/:id\nTrigger Canvas Confetti Animation"]
+    
+    BookingSuccessPage --> SuccessActions{"Customer Next Action"}
+    SuccessActions --> PrintPass["Print Physical-Style E-Ticket (window.print)"]
+    SuccessActions --> ViewHistory["View Booking under /my-bookings"]
+    
+    ViewHistory --> CancelOption{"Cancel Booking\nRequested?"}
+    CancelOption -- "Yes" --> CheckCutoff{"Show Start Time > 2 Hours Remaining?"}
+    CheckCutoff -- "No" --> CutoffDenied["400 Error: Cancellations only permitted >= 2h prior"]
+    CheckCutoff -- "Yes" --> ExecuteCancel["POST /bookings/:id/cancel\nRelease seats to AVAILABLE\nProcess refund (ticket amount)\nBroadcast 'seat-hold-released'"] --> ViewHistory
+    CancelOption -- "No" --> EndSuccess(["Done"])

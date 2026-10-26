@@ -1,0 +1,77 @@
+flowchart LR
+    %% =========================================================================
+    %% iMovie (IMovies) — Roles & Responsibilities Diagram (RBAC & Use Cases)
+    %% =========================================================================
+
+    subgraph Actors["Human User Roles"]
+        Guest["Guest User\n(Unauthenticated Visitor)"]
+        Customer["Verified Customer\n(role: 'user', isEmailVerified: true)"]
+        Admin["System Administrator\n(role: 'admin', isEmailVerified: true)"]
+    end
+
+    subgraph PublicScope["Public Domain (No Authentication Required)"]
+        UC_P1["Discover & Search Movies"]
+        UC_P2["View Movie Details & YouTube Trailers"]
+        UC_P3["Browse Multiplex Theatres by City"]
+        UC_P4["View Auditorium Seat Availability Map (Read-Only)"]
+        UC_P5["Register Account & Submit Email Verification OTP"]
+        UC_P6["Log In with Email & Password"]
+        UC_P7["Initiate Password Reset via Email Token"]
+    end
+
+    subgraph CustomerScope["Customer Domain (Guarded by authenticate & ProtectedRoute)"]
+        UC_C1["Claim Atomic Seat Hold (Max 10 seats, 8-min window)"]
+        UC_C2["Complete Checkout via Payment Sandbox / Razorpay"]
+        UC_C3["View Confirmed Booking & Base64 QR Code E-Ticket"]
+        UC_C4["Print Physical-Style Admission Pass"]
+        UC_C5["View Personal Booking History (/my-bookings)"]
+        UC_C6["Cancel Confirmed Booking (>= 2 Hours Pre-Show Cutoff)"]
+        UC_C7["Update Profile Information (Name, Phone, Avatar)"]
+        UC_C8["Receive In-App Notifications on Booking Events"]
+    end
+
+    subgraph AdminScope["Administration Domain (Guarded by requireAdmin & AdminRoute)"]
+        UC_A1["View Executive Dashboard & Verified Revenue Analytics"]
+        UC_A2["Movie Catalog Management (Create, Edit, Archive, Upload Posters)"]
+        UC_A3["Theatre & Auditorium Management (Configure Seating Layouts)"]
+        UC_A4["Show Scheduling (Enforce Overlap Collision Prevention)"]
+        UC_A5["Global Booking Audit & Search"]
+        UC_A6["Administrative Booking Cancellation Override (Any Time)"]
+        UC_A7["Customer Account Management (Toggle Active / Suspended)"]
+    end
+
+    %% Actor to Use Case Connections
+    Guest --> UC_P1
+    Guest --> UC_P2
+    Guest --> UC_P3
+    Guest --> UC_P4
+    Guest --> UC_P5
+    Guest --> UC_P6
+    Guest --> UC_P7
+
+    Customer --> UC_P1
+    Customer --> UC_P2
+    Customer --> UC_P3
+    Customer --> UC_P4
+    Customer --> UC_C1
+    Customer --> UC_C2
+    Customer --> UC_C3
+    Customer --> UC_C4
+    Customer --> UC_C5
+    Customer --> UC_C6
+    Customer --> UC_C7
+    Customer --> UC_C8
+
+    Admin --> UC_P1
+    Admin --> UC_P2
+    Admin --> UC_P3
+    Admin --> UC_C1
+    Admin --> UC_C2
+    Admin --> UC_C3
+    Admin --> UC_A1
+    Admin --> UC_A2
+    Admin --> UC_A3
+    Admin --> UC_A4
+    Admin --> UC_A5
+    Admin --> UC_A6
+    Admin --> UC_A7

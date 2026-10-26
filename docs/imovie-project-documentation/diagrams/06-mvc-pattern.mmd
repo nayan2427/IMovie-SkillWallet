@@ -1,0 +1,94 @@
+sequenceDiagram
+    %% =========================================================================
+    %% iMovie (IMovies) — Decoupled MVC Pattern & Request Lifecycle
+    %% =========================================================================
+
+    autonumber
+    
+    actor User as User / Browser
+    participant V as VIEW (React 18 SPA)<br/>pages/SeatSelectionPage.jsx<br/>store/bookingSlice.js
+    participant C as CONTROLLER (Express 4.19)<br/>routes/bookingRoutes.js<br/>controllers/bookingController.js
+    participant MW as MIDDLEWARE<br/>middleware/auth.js<br/>validators/bookingValidator.js
+    participant S as SERVICE LAYER<br/>services/seatReservationService.js<br/>services/paymentService.js
+    participant M as MODEL (Mongoose 8.5)<br/>models/ShowSeat.js<br/>models/Booking.js<br/>models/Payment.js
+    participant DB as DATABASE<br/>MongoDB Atlas
+    participant WS as REAL-TIME ENGINE<br/>sockets/socketHandler.js
+
+    %% -------------------------------------------------------------
+    %% Phase 1: Temporary Hold Request
+    %% -------------------------------------------------------------
+    Note over User,WS: Phase 1: Atomic Concurrency Seat Hold Request
+    User->>V: Selects seats [C4, C5] & clicks 'Hold & Checkout'
+    V->>C: POST /api/v1/bookings/hold { showId, seats: ['C4', 'C5'] }
+    C->>MW: Invoke rateLimiter, authenticate, and holdSeatsValidator
+    MW-->>C: Request verified & sanitized (req.user populated)
+    
+    C->>S: seatReservationService.holdSeats({ showId, seatNumbers, user })
+    S->>M: ShowSeat.updateMany({ show, seatNumber, status: AVAILABLE })
+    M->>DB: Execute atomic conditional query
+    DB-->>M: writeResult { modifiedCount: 2 }
+    M-->>S: updateResult
+    
+    alt Concurrency Conflict (modifiedCount != seatNumbers.length)
+        S->>M: ShowSeat.updateMany (Rollback touched seats)
+        M->>DB: Revert seats to AVAILABLE
+        S-->>C: 409 Conflict Error: "Seats taken by another user"
+        C-->>V: JSON { success: false, message: "Seat conflict" }
+        V-->>User: Display Toast Warning & Refresh Seat Grid
+    else Concurrency Success (All requested seats atomically locked)
+        S->>M: Booking.create({ user, show, seats, status: 'pending', expiresAt: +8m })
+        M->>DB: Insert pending booking document
+        DB-->>M: Persisted Booking entity
+        S->>WS: broadcastSeatHold(showId, ['C4', 'C5'], expiresAt)
+        WS-->>V: WebSocket Broadcast 'seat-hold-created' (turns seats amber for all viewers)
+        S-->>C: Return { bookingId, holdToken, grandTotal, expiresAt }
+        C-->>V: 201 Created JSON Response
+        V->>V: Redux dispatch(setHoldData) & Open PaymentModal
+        V-->>User: Display 8-Minute Countdown Timer & Checkout Summary
+    end
+
+    %% -------------------------------------------------------------
+    %% Phase 2: Payment & Booking Confirmation
+    %% -------------------------------------------------------------
+    Note over User,WS: Phase 2: Checkout, Verification & Final Booking Confirmation
+    User->>V: Chooses 'Credit Card' & clicks 'Pay Now'
+    V->>C: POST /api/v1/bookings/create-order { bookingId }
+    C->>S: paymentService.createOrder(...)
+    S-->>C: Order entity { orderId, amount }
+    C-->>V: 200 OK Order Response
+    
+    V->>C: POST /api/v1/payments/simulate { orderId, method: 'card' }
+    C->>S: paymentService.verifyPayment(...)
+    S-->>C: Payment result { paymentId, status: 'success' }
+    C-->>V: 200 OK Payment Success Response
+    
+    V->>C: POST /api/v1/bookings/confirm { bookingId, paymentId, method }
+    C->>MW: Invoke paymentLimiter, authenticate, confirmBookingValidator
+    MW-->>C: Validation Passed
+    
+    C->>S: seatReservationService.confirmBookingPayment(...)
+    S->>M: Booking.findById(bookingId) & ShowSeat.find(heldUntil > now)
+    M->>DB: Query booking and active seat holds
+    DB-->>M: Active hold records found
+    
+    alt Hold Expired Before Payment Confirmation
+        S->>S: paymentService.refundPayment(paymentId)
+        S->>M: ShowSeat.updateMany (Release seats to AVAILABLE)
+        S->>M: Booking.updateOne (status: 'expired')
+        S-->>C: 410 Expired Error: "Hold expired, full refund initiated"
+        C-->>V: JSON { success: false, refunded: true }
+        V-->>User: Display Refund Notice & Return to Seat Selection
+    else Hold Valid (Confirmed)
+        S->>M: ShowSeat.updateMany({ holdToken }, { status: 'BOOKED', booking: bookingId })
+        M->>DB: Convert status HELD -> BOOKED
+        S->>M: Payment.create({ bookingId, providerPaymentId, status: 'success' })
+        M->>DB: Insert Payment audit record
+        S->>M: Booking.updateOne({ status: 'confirmed', qrCode, paymentStatus: 'success' })
+        M->>DB: Update Booking record
+        S->>WS: broadcastBookingConfirmed(showId, ['C4', 'C5'])
+        WS-->>V: WebSocket Broadcast 'booking-confirmed' (turns seats booked/red for all)
+        S-->>C: Return Confirmed Booking Entity
+        C-->>V: 200 OK JSON Response with Ticket & QR Data
+        V->>V: Clear Redux holdData & Trigger Confetti
+        V-->>User: Redirect to BookingConfirmationPage & Display QR Pass
+    end

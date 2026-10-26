@@ -1,0 +1,185 @@
+erDiagram
+    %% =========================================================================
+    %% iMovie (IMovies) — Entity-Relationship (ER) Diagram
+    %% =========================================================================
+
+    USER ||--o{ BOOKING : "places (user)"
+    USER ||--o{ PAYMENT : "initiates (user)"
+    USER ||--o{ NOTIFICATION : "receives (user)"
+    USER ||--o{ SHOW_SEAT : "holds (heldBy)"
+
+    THEATRE ||--|{ SCREEN : "contains (theatre)"
+    THEATRE ||--o{ SHOW : "hosts (theatre)"
+    SCREEN ||--o{ SHOW : "screens (screen)"
+    MOVIE ||--o{ SHOW : "schedules (movie)"
+
+    SHOW ||--|{ SHOW_SEAT : "inventories (show)"
+    SHOW ||--o{ BOOKING : "contains (show)"
+
+    BOOKING ||--|| PAYMENT : "audited by (booking)"
+    BOOKING ||--o{ SHOW_SEAT : "reserves (booking)"
+
+    USER {
+        ObjectId id PK "Primary Key"
+        string name "User full name"
+        string email UK "Unique lowercase login email"
+        string passwordHash "Bcrypt hash (12 salt rounds)"
+        string role "Enum: 'user', 'admin'"
+        string phone "Contact phone number"
+        string avatar "Profile picture URL"
+        string accountStatus "Enum: 'active', 'suspended', 'deleted'"
+        int tokenVersion "Session invalidation counter"
+        boolean isEmailVerified "Verification state flag"
+        boolean isVerified "Legacy compatibility flag"
+        boolean emailVerified "Legacy compatibility flag"
+        date emailVerifiedAt "Verification timestamp"
+        string emailVerificationTokenHash "SHA-256 hash of 32-byte token"
+        string emailVerificationOtpHash "SHA-256 hash of 6-digit OTP"
+        date emailVerificationExpiresAt "Token/OTP expiry timestamp"
+        int emailVerificationAttempts "Failed attempt counter (max 5)"
+        date emailVerificationLockedUntil "Brute-force lockout deadline"
+        date emailVerificationLastSentAt "Cooldown timestamp for resend"
+        string passwordResetTokenHash "SHA-256 hash of reset token"
+        date passwordResetExpiresAt "Reset token expiry deadline"
+        date createdAt "Record creation timestamp"
+        date updatedAt "Record last modified timestamp"
+    }
+
+    THEATRE {
+        ObjectId id PK "Primary Key"
+        string name "Multiplex or cinema name"
+        string slug UK "Unique lowercase URL slug"
+        string description "Venue highlights & overview"
+        string address "Street address"
+        string city "City location (indexed)"
+        string state "State or province"
+        string postalCode "Postal / ZIP code"
+        string country "Country (default: India)"
+        array amenities "List of amenities (e.g. 4K, Recliner)"
+        boolean isActive "Operational status flag"
+        date createdAt "Record creation timestamp"
+        date updatedAt "Record last modified timestamp"
+    }
+
+    SCREEN {
+        ObjectId id PK "Primary Key"
+        ObjectId theatre FK "Foreign Key -> THEATRE"
+        string name "Screen name (e.g. Audi 1 - IMAX)"
+        string screenType "Enum: Standard, IMAX, 4DX, Dolby Atmos, Gold Class"
+        int totalSeats "Seating capacity (min 1)"
+        object seatingLayout "Rows with category, multiplier, and seats"
+        boolean isActive "Screen availability flag"
+        date createdAt "Record creation timestamp"
+        date updatedAt "Record last modified timestamp"
+    }
+
+    MOVIE {
+        ObjectId id PK "Primary Key"
+        string title "Movie title (trimmed)"
+        string slug UK "Unique lowercase URL slug"
+        string synopsis "Plot summary and storyline"
+        string posterUrl "Vertical poster image URL"
+        string backdropUrl "Horizontal banner backdrop URL"
+        string trailerUrl "Validated YouTube trailer link"
+        array genres "List of genre tags"
+        array languages "List of spoken languages"
+        int duration "Runtime in minutes"
+        date releaseDate "Theatrical release date"
+        string certification "Enum: U, UA, A, PG, PG-13, R"
+        string director "Director full name"
+        array cast "Cast subdocuments: name, role, avatar"
+        float rating "Viewer rating (0.0 to 10.0)"
+        string status "Enum: now_showing, coming_soon, archived"
+        date createdAt "Record creation timestamp"
+        date updatedAt "Record last modified timestamp"
+    }
+
+    SHOW {
+        ObjectId id PK "Primary Key"
+        ObjectId movie FK "Foreign Key -> MOVIE"
+        ObjectId theatre FK "Foreign Key -> THEATRE"
+        ObjectId screen FK "Foreign Key -> SCREEN"
+        date startTime "Show starting timestamp (UTC)"
+        date endTime "Show conclusion timestamp (UTC)"
+        float basePrice "Base ticket price (min 50)"
+        object seatPricing "Pricing tiers: silver, gold, platinum"
+        string status "Enum: scheduled, running, completed, cancelled"
+        date createdAt "Record creation timestamp"
+        date updatedAt "Record last modified timestamp"
+    }
+
+    SHOW_SEAT {
+        ObjectId id PK "Primary Key"
+        ObjectId show FK "Foreign Key -> SHOW"
+        string seatNumber "Unique seat identifier per show (e.g. C4)"
+        string row "Row letter (e.g. C)"
+        int number "Seat number in row (e.g. 4)"
+        string category "Enum: SILVER, GOLD, PLATINUM"
+        float price "Calculated ticket price"
+        string status "Enum: AVAILABLE, HELD, BOOKED, BLOCKED"
+        ObjectId heldBy FK "Foreign Key -> USER (active hold holder)"
+        date heldUntil "Hold expiration timestamp (now + 8m)"
+        string holdToken "Cryptographic transient hold identifier"
+        ObjectId booking FK "Foreign Key -> BOOKING (confirmed purchase)"
+        date createdAt "Record creation timestamp"
+        date updatedAt "Record last modified timestamp"
+    }
+
+    BOOKING {
+        ObjectId id PK "Primary Key"
+        string bookingReference UK "Unique reference (e.g. IMV-XXXX-YYYY)"
+        ObjectId user FK "Foreign Key -> USER (ticket owner)"
+        ObjectId show FK "Foreign Key -> SHOW (scheduled screening)"
+        array seats "Booked seat items: seatNumber, category, price"
+        float totalAmount "Sum of seat ticket prices"
+        float convenienceFee "Convenience fee (₹25 per ticket)"
+        float grandTotal "Final total paid (totalAmount + fee)"
+        string status "Enum: pending, confirmed, cancelled, expired"
+        string paymentStatus "Enum: pending, success, failed, refunded"
+        string paymentReference "Gateway transaction identifier"
+        string holdToken "Transient hold token from reservation"
+        date expiresAt "Hold expiration deadline"
+        object cancellationDetails "Cancellation date, reason, refund status"
+        string qrCode "Base64 encoded verification QR code URL"
+        date createdAt "Record creation timestamp"
+        date updatedAt "Record last modified timestamp"
+    }
+
+    PAYMENT {
+        ObjectId id PK "Primary Key"
+        ObjectId booking FK "Foreign Key -> BOOKING"
+        ObjectId user FK "Foreign Key -> USER"
+        float amount "Transaction amount paid"
+        string currency "Currency code (default: INR)"
+        string provider "Enum: simulated, razorpay, stripe"
+        string providerOrderId "Gateway order identifier"
+        string providerPaymentId UK "Gateway payment reference (sparse unique)"
+        string status "Enum: pending, success, failed, refunded"
+        string method "Enum: card, upi, netbanking, wallet, simulator"
+        object metadata "Gateway response payload audit"
+        string refundId "Gateway refund transaction reference"
+        date createdAt "Record creation timestamp"
+        date updatedAt "Record last modified timestamp"
+    }
+
+    NOTIFICATION {
+        ObjectId id PK "Primary Key"
+        ObjectId user FK "Foreign Key -> USER"
+        string type "Enum: booking_confirmed, booking_cancelled, hold_expired, reminder, system"
+        string title "Alert headline"
+        string message "Descriptive notification body"
+        string bookingReference "Associated booking reference"
+        boolean read "Read status flag (default: false)"
+        date createdAt "Record creation timestamp"
+        date updatedAt "Record last modified timestamp"
+    }
+
+    WEBHOOK_EVENT {
+        ObjectId id PK "Primary Key"
+        string eventId UK "Unique webhook event ID from provider"
+        string provider "Gateway provider (e.g. razorpay)"
+        string eventType "Event descriptor (e.g. payment.captured)"
+        date receivedAt "Arrival timestamp (indexed)"
+        date createdAt "7-day TTL cleanup anchor"
+        date updatedAt "Record last modified timestamp"
+    }
