@@ -46,7 +46,8 @@ export const PAYMENT_STATUS = {
 export const PAYMENT_PROVIDERS = {
   SIMULATED: 'simulated',
   RAZORPAY: 'razorpay',
-  STRIPE: 'stripe'
+  STRIPE: 'stripe',
+  DISABLED: 'disabled'
 };
 
 // Seat hold duration in minutes (standard cinema booking hold window)

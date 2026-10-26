@@ -25,12 +25,13 @@ export const runEmailVerificationMigration = async () => {
 
     await connectDB();
 
-    // Find accounts that are verified under any field name but have incomplete synchronization
+    // Find accounts that are verified under any field name or are administrator accounts
     const candidates = await User.find({
       $or: [
         { isVerified: true },
         { emailVerified: true },
-        { emailVerifiedAt: { $ne: null } }
+        { emailVerifiedAt: { $ne: null } },
+        { role: 'admin' }
       ]
     });
 

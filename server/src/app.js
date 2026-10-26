@@ -30,8 +30,9 @@ app.use(
   })
 );
 
-// CORS configuration
+// CORS configuration & explicit preflight handler
 app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // Request parsing: 100kb limit and rawBody capture for webhook signature verification
 app.use(
@@ -63,18 +64,21 @@ app.use(
   express.static(path.resolve(__dirname, '../uploads'))
 );
 
-// Health check endpoint
-app.get('/health', (req, res) => {
+// Health check endpoint (both /health and /api/v1/health returning 200 OK)
+const handleHealthCheck = (req, res) => {
   const dbState = mongoose.connection.readyState;
   const dbStates = { 0: 'disconnected', 1: 'connected', 2: 'connecting', 3: 'disconnecting' };
-  res.json({
+  res.status(200).json({
     status: dbState === 1 ? 'healthy' : 'degraded',
     database: dbStates[dbState] || 'unknown',
     timestamp: new Date(),
     service: 'IMovies REST API',
     uptime: process.uptime()
   });
-});
+};
+
+app.get('/health', handleHealthCheck);
+app.get('/api/v1/health', handleHealthCheck);
 
 // General rate limiter for API routes
 app.use('/api', apiLimiter);

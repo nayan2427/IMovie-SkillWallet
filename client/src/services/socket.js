@@ -3,7 +3,7 @@ import { io } from 'socket.io-client';
 const getSocketUrl = () => {
   const rawUrl = import.meta.env.VITE_SOCKET_URL || import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
   if (!rawUrl) {
-    return 'http://localhost:5000';
+    return import.meta.env.PROD ? 'https://imovie-skillwallet.onrender.com' : 'http://localhost:5000';
   }
   return rawUrl.trim().replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
 };

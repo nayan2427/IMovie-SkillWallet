@@ -212,7 +212,7 @@ EMAIL_VERIFICATION_TOKEN_TTL_MINUTES=60
 
 # Administrator Seeding Credentials
 ADMIN_SEED_NAME=Cinema SuperAdmin
-ADMIN_SEED_EMAIL=admin@imovies.com
+ADMIN_SEED_EMAIL=vishwakarmanayan66@gmail.com
 ADMIN_SEED_PASSWORD=Admin@123456
 ADMIN_SEED_PHONE=+919876543210
 ```

@@ -5,7 +5,7 @@ import { WebhookEvent } from '../models/WebhookEvent.js';
 import { paymentService } from '../services/paymentService.js';
 import { seatReservationService } from '../services/seatReservationService.js';
 import { successResponse, errorResponse } from '../utils/apiResponse.js';
-import { isProduction } from '../config/environment.js';
+import { isProduction, env } from '../config/environment.js';
 import { BOOKING_STATUS } from '../utils/constants.js';
 import { logger } from '../utils/logger.js';
 
@@ -29,6 +29,12 @@ export const getPaymentStatus = async (req, res, next) => {
 
 export const simulatePayment = async (req, res, next) => {
   try {
+    if (!env.PAYMENTS_ENABLED) {
+      return errorResponse(res, 'Payments are currently disabled on this platform.', 503, null, {
+        code: 'PAYMENTS_DISABLED'
+      });
+    }
+
     if (isProduction()) {
       return errorResponse(res, 'Payment simulation is disabled in production.', 403);
     }
@@ -64,6 +70,12 @@ export const simulatePayment = async (req, res, next) => {
 
 export const handlePaymentWebhook = async (req, res, next) => {
   try {
+    if (!env.PAYMENTS_ENABLED) {
+      return errorResponse(res, 'Payments are currently disabled on this platform.', 503, null, {
+        code: 'PAYMENTS_DISABLED'
+      });
+    }
+
     const signature = req.headers['x-webhook-signature'] || req.headers['x-razorpay-signature'];
     const timestamp = req.headers['x-webhook-timestamp'] || req.headers['x-razorpay-event-time'];
     const eventId = req.headers['x-webhook-id'] || req.body?.id || req.body?.event_id;

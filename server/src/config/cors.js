@@ -2,7 +2,7 @@ import { env, isProduction } from './environment.js';
 
 export const getAllowedOrigins = () => {
   const defaults = isProduction()
-    ? []
+    ? ['https://imovie-skillwallet.jaivish546.workers.dev']
     : [
         'http://localhost:5173',
         'http://127.0.0.1:5173',
@@ -34,11 +34,21 @@ export const corsOptions = {
     if (isOriginAllowed(origin)) {
       callback(null, true);
     } else {
-      callback(new Error(`Origin ${origin} not allowed by CORS policy`));
+      // Return null, false to omit CORS headers without crashing request pipeline with 500
+      callback(null, false);
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-IMovies-Client']
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'X-IMovies-Client',
+    'Accept',
+    'Origin'
+  ],
+  exposedHeaders: ['Set-Cookie'],
+  maxAge: 86400 // 24 hours preflight cache
 };
 

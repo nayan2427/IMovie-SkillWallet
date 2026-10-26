@@ -16,6 +16,7 @@ import {
   HOLD_EXPIRY_MINUTES,
   CANCELLATION_CUTOFF_HOURS
 } from '../utils/constants.js';
+import { env } from '../config/environment.js';
 import { logger } from '../utils/logger.js';
 
 class SeatReservationService {
@@ -267,6 +268,13 @@ class SeatReservationService {
    * Confirms a verified payment and converts hold into booked seats atomically
    */
   async confirmBookingPayment({ bookingId, paymentResult, user }) {
+    if (!env.PAYMENTS_ENABLED) {
+      const disabledErr = new Error('Payments are currently disabled on this platform.');
+      disabledErr.statusCode = 503;
+      disabledErr.code = 'PAYMENTS_DISABLED';
+      throw disabledErr;
+    }
+
     const booking = await Booking.findById(bookingId).populate({
       path: 'show',
       populate: ['movie', 'theatre', 'screen']

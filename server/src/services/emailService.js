@@ -305,7 +305,7 @@ class EmailService {
    * Sends a branded HTML verification email with both a direct verification link and a 6-digit OTP
    */
   async sendVerificationEmail({ to, name, token, otp }) {
-    const clientUrl = env.CLIENT_URL || 'http://localhost:5173';
+    const clientUrl = (env.CLIENT_URL || 'http://localhost:5173').replace(/\/$/, '');
     const verificationUrl = `${clientUrl}/verify-email?token=${token}&email=${encodeURIComponent(to)}`;
     const ttlMinutes = env.EMAIL_VERIFICATION_TOKEN_TTL_MINUTES || 60;
 
@@ -425,7 +425,7 @@ If you did not sign up for an IMovies account, please disregard this message.
    * Sends a branded HTML password reset email with a secure single-use link
    */
   async sendPasswordResetEmail({ to, name, resetToken }) {
-    const clientUrl = env.CLIENT_URL || 'http://localhost:5173';
+    const clientUrl = (env.CLIENT_URL || 'http://localhost:5173').replace(/\/$/, '');
     const resetUrl = `${clientUrl}/reset-password?token=${resetToken}&email=${encodeURIComponent(to)}`;
 
     const htmlContent = `

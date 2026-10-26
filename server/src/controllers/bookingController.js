@@ -4,6 +4,7 @@ import { paymentService } from '../services/paymentService.js';
 import { broadcastSeatHold, broadcastSeatRelease, broadcastBookingConfirmed } from '../sockets/socketHandler.js';
 import { successResponse, errorResponse } from '../utils/apiResponse.js';
 import { BOOKING_STATUS } from '../utils/constants.js';
+import { env } from '../config/environment.js';
 
 export const holdSeats = async (req, res, next) => {
   try {
@@ -31,6 +32,12 @@ export const holdSeats = async (req, res, next) => {
 
 export const createPaymentOrder = async (req, res, next) => {
   try {
+    if (!env.PAYMENTS_ENABLED) {
+      return errorResponse(res, 'Payments are currently disabled on this platform.', 503, null, {
+        code: 'PAYMENTS_DISABLED'
+      });
+    }
+
     const { bookingId } = req.body;
 
     const booking = await Booking.findById(bookingId).populate('show');
@@ -70,6 +77,12 @@ export const createPaymentOrder = async (req, res, next) => {
 
 export const confirmBooking = async (req, res, next) => {
   try {
+    if (!env.PAYMENTS_ENABLED) {
+      return errorResponse(res, 'Payments are currently disabled on this platform.', 503, null, {
+        code: 'PAYMENTS_DISABLED'
+      });
+    }
+
     const { bookingId, orderId, paymentId, signature, method, payload } = req.body;
 
     const booking = await Booking.findById(bookingId);

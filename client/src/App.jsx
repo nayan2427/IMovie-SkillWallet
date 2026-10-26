@@ -1,7 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
 import { checkAuth } from './store/authSlice.js';
+import { Server } from 'lucide-react';
 
 // Layouts
 import { MainLayout } from './layouts/MainLayout.jsx';
@@ -40,6 +41,7 @@ import { AdminUsersPage } from './pages/admin/AdminUsersPage.jsx';
 
 export const App = () => {
   const dispatch = useDispatch();
+  const [wakeUpMessage, setWakeUpMessage] = useState(null);
 
   useEffect(() => {
     // Check session on initial load
@@ -50,11 +52,34 @@ export const App = () => {
       dispatch(checkAuth());
     };
     window.addEventListener('auth-expired', handleAuthExpired);
-    return () => window.removeEventListener('auth-expired', handleAuthExpired);
+
+    // Listen to Render cold-start wake up event
+    const handleWakeUp = (e) => {
+      if (e.detail?.isWaking) {
+        setWakeUpMessage(e.detail.message || 'Cinema server is waking up from sleep. Please hold on...');
+      } else {
+        setWakeUpMessage(null);
+      }
+    };
+    window.addEventListener('server-wake-up', handleWakeUp);
+
+    return () => {
+      window.removeEventListener('auth-expired', handleAuthExpired);
+      window.removeEventListener('server-wake-up', handleWakeUp);
+    };
   }, [dispatch]);
 
   return (
     <ErrorBoundary>
+      {wakeUpMessage && (
+        <div
+          className="position-fixed bottom-0 start-50 translate-middle-x mb-4 px-4 py-3 bg-danger text-white rounded-3 shadow-lg d-flex align-items-center gap-3 border border-light border-opacity-25 animate__animated animate__fadeInUp"
+          style={{ zIndex: 9999, maxWidth: '90vw' }}
+        >
+          <div className="spinner-border spinner-border-sm text-light flex-shrink-0" role="status" />
+          <span className="small fw-semibold">{wakeUpMessage}</span>
+        </div>
+      )}
       <Routes>
         {/* Main Customer Layout */}
         <Route path="/" element={<MainLayout />}>

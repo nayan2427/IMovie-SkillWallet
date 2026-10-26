@@ -124,7 +124,7 @@ Before deploying the backend, ensure MongoDB Atlas accepts connections from clou
 | `SMTP_USER` | `your_email@gmail.com` | (Optional) Fallback SMTP user |
 | `SMTP_PASS` | `xxxx xxxx xxxx xxxx` | (Optional) Google App Password |
 | `ADMIN_SEED_NAME` | `Cinema SuperAdmin` | Initial administrator name |
-| `ADMIN_SEED_EMAIL` | `admin@imovies.com` | Initial administrator email |
+| `ADMIN_SEED_EMAIL` | `vishwakarmanayan66@gmail.com` | Initial administrator email |
 | `ADMIN_SEED_PASSWORD`| *(Your strong admin password)* | Administrator password |
 | `ADMIN_SEED_PHONE` | `+919876543210` | Administrator contact |
 

@@ -35,7 +35,7 @@ export const seedDatabase = async ({ reset = true, closeConnection = true } = {}
     if (reset) {
       logger.info('Clearing old collections for clean seed...');
       await Promise.all([
-        User.deleteMany({ email: { $ne: 'admin@imovies.com' } }),
+        User.deleteMany({ email: { $ne: env.ADMIN_SEED_EMAIL.toLowerCase() } }),
         Movie.deleteMany({}),
         Theatre.deleteMany({}),
         Screen.deleteMany({}),

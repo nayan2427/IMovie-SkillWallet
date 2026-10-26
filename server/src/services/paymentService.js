@@ -4,12 +4,25 @@ import { PAYMENT_PROVIDERS, PAYMENT_STATUS } from '../utils/constants.js';
 import { logger } from '../utils/logger.js';
 
 class PaymentService {
+  get provider() {
+    if (!env.PAYMENTS_ENABLED) {
+      return PAYMENT_PROVIDERS.DISABLED;
+    }
+    return env.PAYMENT_PROVIDER || PAYMENT_PROVIDERS.SIMULATED;
+  }
+
   constructor() {
-    this.provider = env.PAYMENT_PROVIDER || PAYMENT_PROVIDERS.SIMULATED;
-    logger.info(`PaymentService initialized with provider: ${this.provider} (Test mode: ${env.PAYMENT_TEST_MODE})`);
+    logger.info(`PaymentService initialized (Payments enabled: ${env.PAYMENTS_ENABLED}, Provider: ${this.provider}, Test mode: ${env.PAYMENT_TEST_MODE})`);
   }
 
   async createOrder({ bookingReference, amount, currency = 'INR', user }) {
+    if (!env.PAYMENTS_ENABLED || this.provider === PAYMENT_PROVIDERS.DISABLED) {
+      const error = new Error('Payments are currently disabled on this platform.');
+      error.statusCode = 503;
+      error.code = 'PAYMENTS_DISABLED';
+      throw error;
+    }
+
     if (this.provider === PAYMENT_PROVIDERS.SIMULATED) {
       const orderId = `SIM_ORD_${Date.now()}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
       return {
@@ -60,6 +73,10 @@ class PaymentService {
   }
 
   async verifyPayment({ orderId, paymentId, signature, payload = {} }) {
+    if (!env.PAYMENTS_ENABLED || this.provider === PAYMENT_PROVIDERS.DISABLED) {
+      return { verified: false, reason: 'Payments are currently disabled on this platform.' };
+    }
+
     if (this.provider === PAYMENT_PROVIDERS.SIMULATED) {
       // In simulated mode, accept simulated transactions that match the expected simulator prefix or valid signature
       if (!paymentId || !orderId) {
@@ -98,6 +115,9 @@ class PaymentService {
   }
 
   async refundPayment({ paymentId, amount, reason = 'Customer requested cancellation' }) {
+    if (!env.PAYMENTS_ENABLED || this.provider === PAYMENT_PROVIDERS.DISABLED) {
+      return { success: false, reason: 'Payments are currently disabled on this platform.' };
+    }
     if (this.provider === PAYMENT_PROVIDERS.SIMULATED) {
       return {
         success: true,

@@ -72,7 +72,7 @@ The `.env` files are already pre-configured for instant development. If customiz
   MONGODB_URI=mongodb://127.0.0.1:27017/imovies
   JWT_ACCESS_SECRET=imovies_super_secret_jwt_access_token_key_change_in_production_2026
   PAYMENT_PROVIDER=simulated
-  ADMIN_SEED_EMAIL=admin@imovies.com
+  ADMIN_SEED_EMAIL=vishwakarmanayan66@gmail.com
   ADMIN_SEED_PASSWORD=Admin@123456
   ```
 - `client/.env`:
@@ -97,7 +97,7 @@ This populates:
 ```bash
 npm run seed:admin
 ```
-- **Admin Email**: `admin@imovies.com`
+- **Admin Email**: `vishwakarmanayan66@gmail.com`
 - **Admin Password**: `Admin@123456`
 - **Demo User Email**: `john@example.com`
 - **Demo User Password**: `User@123456`

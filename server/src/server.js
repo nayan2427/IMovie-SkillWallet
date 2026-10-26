@@ -7,6 +7,7 @@ import { startSeatExpiryJob, stopSeatExpiryJob } from './jobs/seatExpiryJob.js';
 import { logger } from './utils/logger.js';
 import { Theatre } from './models/Theatre.js';
 import { seedDatabase } from './scripts/seed.js';
+import { ensureAdminUser } from './scripts/createAdmin.js';
 
 const httpServer = http.createServer(app);
 
@@ -14,12 +15,11 @@ const httpServer = http.createServer(app);
 initSocket(httpServer);
 
 const startServer = async () => {
-  // Bind port first so hosting platforms (Render, Railway, etc.) detect an active web service immediately
-  httpServer.listen(env.PORT, () => {
+  // Bind port on 0.0.0.0 so hosting platforms (Render, Railway, etc.) route external traffic reliably
+  httpServer.listen(env.PORT, '0.0.0.0', () => {
     logger.info(`=================================================`);
-    logger.info(`🎬 IMovies Server running at port ${env.PORT}`);
-    logger.info(`⚡ Socket.IO listening on port ${env.PORT}`);
-    logger.info(`💳 Payment Provider: ${env.PAYMENT_PROVIDER}`);
+    logger.info(`🎬 IMovies Server running at port ${env.PORT} on 0.0.0.0`);
+    logger.info(`💳 Payments Enabled: ${env.PAYMENTS_ENABLED} (Provider: ${env.PAYMENT_PROVIDER})`);
     logger.info(`🌐 Environment: ${env.NODE_ENV}`);
     logger.info(`=================================================`);
   });
@@ -27,6 +27,11 @@ const startServer = async () => {
   try {
     // Connect to database
     await connectDB();
+
+    // Ensure configured Administrator account is synchronized & verified in persistent DB
+    await ensureAdminUser({
+      updatePassword: process.env.SYNC_ADMIN_PASSWORD === 'true'
+    });
 
     // Auto-seeding only allowed in non-production environments when empty
     if (!isProduction()) {

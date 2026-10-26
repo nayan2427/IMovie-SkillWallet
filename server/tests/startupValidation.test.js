@@ -1,13 +1,30 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
-import { isProduction, validateEnvironment, SAMPLE_JWT_SECRETS } from '../src/config/environment.js';
+import { isProduction, validateEnvironment, isPaymentEnabled, env, SAMPLE_JWT_SECRETS } from '../src/config/environment.js';
 import { isOriginAllowed, getAllowedOrigins } from '../src/config/cors.js';
+import { connectDB, disconnectDB } from '../src/config/db.js';
 import app from '../src/app.js';
 import { emailService } from '../src/services/emailService.js';
 import { seedDatabase } from '../src/scripts/seed.js';
+import { User } from '../src/models/User.js';
+import { generateAccessToken } from '../src/utils/token.js';
+import { ROLES } from '../src/utils/constants.js';
+import { seatReservationService } from '../src/services/seatReservationService.js';
+import { ensureAdminUser } from '../src/scripts/createAdmin.js';
+import bcrypt from 'bcryptjs';
+import mongoose from 'mongoose';
 
 describe('Phase 1 Security & Startup Validation Suite', () => {
   const originalEnv = { ...process.env };
+
+  beforeAll(async () => {
+    await connectDB();
+
+  });
+
+  afterAll(async () => {
+    await disconnectDB();
+  });
 
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -99,7 +116,7 @@ describe('Phase 1 Security & Startup Validation Suite', () => {
         validateEnvironment({
           NODE_ENV: 'production',
           JWT_ACCESS_SECRET: 'a_very_secure_high_entropy_secret_key_for_production_use_2026!',
-          PAYMENT_PROVIDER: 'razorpay'
+          PAYMENTS_ENABLED: 'false'
         })
       ).toBe(true);
     });
@@ -123,8 +140,8 @@ describe('Phase 1 Security & Startup Validation Suite', () => {
     });
   });
 
-  describe('3. Simulated Payment Provider Rejection in Production', () => {
-    it('throws when PAYMENT_PROVIDER is simulated in production', () => {
+  describe('3. Payment Configuration & Safe Payment-Disabled Production Mode', () => {
+    it('throws when PAYMENT_PROVIDER is simulated in production with payments enabled', () => {
       expect(() => {
         validateEnvironment({
           NODE_ENV: 'production',
@@ -134,7 +151,7 @@ describe('Phase 1 Security & Startup Validation Suite', () => {
       }).toThrow(/PAYMENT_PROVIDER cannot be 'simulated' in production/);
     });
 
-    it('throws when PAYMENT_PROVIDER defaults to simulated when unset in production', () => {
+    it('throws when PAYMENT_PROVIDER defaults to simulated when unset in production with payments enabled', () => {
       expect(() => {
         validateEnvironment({
           NODE_ENV: 'production',
@@ -143,12 +160,13 @@ describe('Phase 1 Security & Startup Validation Suite', () => {
       }).toThrow(/PAYMENT_PROVIDER cannot be 'simulated' in production/);
     });
 
-    it('allows razorpay or stripe in production', () => {
+    it('allows starting in production with payments disabled via PAYMENTS_ENABLED=false', () => {
       expect(
         validateEnvironment({
           NODE_ENV: 'production',
           JWT_ACCESS_SECRET: 'a_very_secure_high_entropy_secret_key_for_production_use_2026!',
-          PAYMENT_PROVIDER: 'razorpay'
+          PAYMENTS_ENABLED: 'false',
+          PAYMENT_PROVIDER: 'simulated'
         })
       ).toBe(true);
 
@@ -156,14 +174,119 @@ describe('Phase 1 Security & Startup Validation Suite', () => {
         validateEnvironment({
           NODE_ENV: 'production',
           JWT_ACCESS_SECRET: 'a_very_secure_high_entropy_secret_key_for_production_use_2026!',
-          PAYMENT_PROVIDER: 'stripe'
+          PAYMENT_ENABLED: 'false'
         })
       ).toBe(true);
     });
 
+    it('allows starting in production with PAYMENT_PROVIDER=disabled or none', () => {
+      expect(
+        validateEnvironment({
+          NODE_ENV: 'production',
+          JWT_ACCESS_SECRET: 'a_very_secure_high_entropy_secret_key_for_production_use_2026!',
+          PAYMENT_PROVIDER: 'disabled'
+        })
+      ).toBe(true);
+
+      expect(
+        validateEnvironment({
+          NODE_ENV: 'production',
+          JWT_ACCESS_SECRET: 'a_very_secure_high_entropy_secret_key_for_production_use_2026!',
+          PAYMENT_PROVIDER: 'none'
+        })
+      ).toBe(true);
+    });
+
+    it('does NOT permit ALLOW_SIMULATED_PAYMENTS_IN_PROD to bypass simulated provider guard when payments are enabled', () => {
+      expect(() => {
+        validateEnvironment({
+          NODE_ENV: 'production',
+          JWT_ACCESS_SECRET: 'a_very_secure_high_entropy_secret_key_for_production_use_2026!',
+          PAYMENTS_ENABLED: 'true',
+          PAYMENT_PROVIDER: 'simulated',
+          ALLOW_SIMULATED_PAYMENTS_IN_PROD: 'true'
+        });
+      }).toThrow(/PAYMENT_PROVIDER cannot be 'simulated' in production/);
+    });
+
+    it('validates required credentials when razorpay is enabled in production', () => {
+      // Missing credentials
+      expect(() => {
+        validateEnvironment({
+          NODE_ENV: 'production',
+          JWT_ACCESS_SECRET: 'a_very_secure_high_entropy_secret_key_for_production_use_2026!',
+          PAYMENT_PROVIDER: 'razorpay'
+        });
+      }).toThrow(/RAZORPAY_KEY_ID/);
+
+      // Sample placeholder rejected
+      expect(() => {
+        validateEnvironment({
+          NODE_ENV: 'production',
+          JWT_ACCESS_SECRET: 'a_very_secure_high_entropy_secret_key_for_production_use_2026!',
+          PAYMENT_PROVIDER: 'razorpay',
+          RAZORPAY_KEY_ID: 'mock_sample_key_id_value',
+          RAZORPAY_KEY_SECRET: 'mock_sample_secret_value'
+        });
+      }).toThrow(/sample\/default placeholders/);
+
+      // Valid credentials accepted
+      expect(
+        validateEnvironment({
+          NODE_ENV: 'production',
+          JWT_ACCESS_SECRET: 'a_very_secure_high_entropy_secret_key_for_production_use_2026!',
+          PAYMENT_PROVIDER: 'razorpay',
+          RAZORPAY_KEY_ID: 'mock_custom_key_id_valid_123',
+          RAZORPAY_KEY_SECRET: 'mock_custom_secret_valid_456'
+        })
+      ).toBe(true);
+    });
+
+    it('validates required credentials when stripe is enabled in production', () => {
+      // Missing key
+      expect(() => {
+        validateEnvironment({
+          NODE_ENV: 'production',
+          JWT_ACCESS_SECRET: 'a_very_secure_high_entropy_secret_key_for_production_use_2026!',
+          PAYMENT_PROVIDER: 'stripe'
+        });
+      }).toThrow(/STRIPE_SECRET_KEY/);
+
+      // Sample key rejected
+      expect(() => {
+        validateEnvironment({
+          NODE_ENV: 'production',
+          JWT_ACCESS_SECRET: 'a_very_secure_high_entropy_secret_key_for_production_use_2026!',
+          PAYMENT_PROVIDER: 'stripe',
+          STRIPE_SECRET_KEY: 'mock_sample_stripe_key_placeholder'
+        });
+      }).toThrow(/sample\/default placeholders/);
+
+      // Valid key accepted
+      expect(
+        validateEnvironment({
+          NODE_ENV: 'production',
+          JWT_ACCESS_SECRET: 'a_very_secure_high_entropy_secret_key_for_production_use_2026!',
+          PAYMENT_PROVIDER: 'stripe',
+          STRIPE_SECRET_KEY: 'mock_custom_stripe_key_valid_789'
+        })
+      ).toBe(true);
+    });
+
+    it('evaluates isPaymentEnabled correctly across environments', () => {
+      expect(isPaymentEnabled({ NODE_ENV: 'development' })).toBe(true);
+      expect(isPaymentEnabled({ NODE_ENV: 'test' })).toBe(true);
+      expect(isPaymentEnabled({ NODE_ENV: 'development', PAYMENTS_ENABLED: 'false' })).toBe(false);
+      expect(isPaymentEnabled({ NODE_ENV: 'production', PAYMENTS_ENABLED: 'false' })).toBe(false);
+      expect(isPaymentEnabled({ NODE_ENV: 'production', PAYMENT_PROVIDER: 'disabled' })).toBe(false);
+      expect(isPaymentEnabled({ NODE_ENV: 'production', PAYMENT_PROVIDER: 'none' })).toBe(false);
+    });
+
     it('blocks /api/v1/payments/simulate with 403 Forbidden in production', async () => {
       const prevEnv = process.env.NODE_ENV;
+      const prevPaymentsEnabled = env.PAYMENTS_ENABLED;
       process.env.NODE_ENV = 'production';
+      env.PAYMENTS_ENABLED = true;
       try {
         const res = await request(app)
           .post('/api/v1/payments/simulate')
@@ -174,6 +297,80 @@ describe('Phase 1 Security & Startup Validation Suite', () => {
         expect(res.body.message).toContain('Payment simulation is disabled in production');
       } finally {
         process.env.NODE_ENV = prevEnv;
+        env.PAYMENTS_ENABLED = prevPaymentsEnabled;
+      }
+    });
+
+    it('blocks payment endpoints with 503 when payments are disabled', async () => {
+      const prevPaymentsEnabled = env.PAYMENTS_ENABLED;
+      env.PAYMENTS_ENABLED = false;
+      try {
+        // Webhook blocked
+        const webhookRes = await request(app)
+          .post('/api/v1/payments/webhook')
+          .send({ event: 'payment.captured' });
+        expect(webhookRes.status).toBe(503);
+        expect(webhookRes.body.success).toBe(false);
+        expect(webhookRes.body.code).toBe('PAYMENTS_DISABLED');
+
+        // Simulate blocked with 503
+        const simRes = await request(app)
+          .post('/api/v1/payments/simulate')
+          .send({ orderId: 'ORD_TEST_123' });
+        expect(simRes.status).toBe(503);
+        expect(simRes.body.code).toBe('PAYMENTS_DISABLED');
+      } finally {
+        env.PAYMENTS_ENABLED = prevPaymentsEnabled;
+      }
+    });
+
+    it('blocks /api/v1/bookings/create-order and /confirm with 503 when payments are disabled', async () => {
+      const testUser = await User.create({
+        name: 'Disabled Payment Tester',
+        email: `dis_pay_${Date.now()}@testmovies.com`,
+        passwordHash: 'dummy_hash_not_used',
+        role: ROLES.USER,
+        accountStatus: 'active',
+        isEmailVerified: true
+      });
+      const token = generateAccessToken(testUser);
+
+      const prevPaymentsEnabled = env.PAYMENTS_ENABLED;
+      env.PAYMENTS_ENABLED = false;
+      try {
+        const orderRes = await request(app)
+          .post('/api/v1/bookings/create-order')
+          .set('Authorization', `Bearer ${token}`)
+          .send({ bookingId: new mongoose.Types.ObjectId() });
+        expect(orderRes.status).toBe(503);
+        expect(orderRes.body.success).toBe(false);
+        expect(orderRes.body.code).toBe('PAYMENTS_DISABLED');
+
+        const confirmRes = await request(app)
+          .post('/api/v1/bookings/confirm')
+          .set('Authorization', `Bearer ${token}`)
+          .send({ bookingId: new mongoose.Types.ObjectId() });
+        expect(confirmRes.status).toBe(503);
+        expect(confirmRes.body.success).toBe(false);
+        expect(confirmRes.body.code).toBe('PAYMENTS_DISABLED');
+      } finally {
+        env.PAYMENTS_ENABLED = prevPaymentsEnabled;
+      }
+    });
+
+    it('prevents unauthorized paid-access in seatReservationService when payments are disabled', async () => {
+      const prevPaymentsEnabled = env.PAYMENTS_ENABLED;
+      env.PAYMENTS_ENABLED = false;
+      try {
+        await expect(
+          seatReservationService.confirmBookingPayment({
+            bookingId: new mongoose.Types.ObjectId(),
+            paymentResult: { paymentId: 'FAKE_PAY_123', amount: 500 },
+            user: { _id: new mongoose.Types.ObjectId(), role: 'user' }
+          })
+        ).rejects.toThrow(/Payments are currently disabled on this platform/);
+      } finally {
+        env.PAYMENTS_ENABLED = prevPaymentsEnabled;
       }
     });
   });
@@ -225,6 +422,103 @@ describe('Phase 1 Security & Startup Validation Suite', () => {
       } finally {
         process.env.NODE_ENV = prevEnv;
       }
+    });
+  });
+
+  describe('7. Persistent Admin User Synchronization & Role Validation', () => {
+    const adminEmail = 'vishwakarmanayan66@gmail.com';
+    const normalUserEmail = 'regular_user_test@example.com';
+    const testPassword = 'TestPassword@123';
+
+    it('ensureAdminUser() promotes an existing user to admin and marks email verified', async () => {
+      // 1. Create a regular user with role 'user'
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(testPassword, salt);
+      await User.deleteMany({ email: adminEmail });
+
+      const createdUser = await User.create({
+        name: 'Nayan Vishwakarma',
+        email: adminEmail,
+        passwordHash,
+        role: ROLES.USER,
+        isEmailVerified: false,
+        accountStatus: 'active'
+      });
+      expect(createdUser.role).toBe(ROLES.USER);
+      expect(createdUser.isEmailVerified).toBe(false);
+
+      // 2. Run ensureAdminUser()
+      const admin = await ensureAdminUser();
+      expect(admin).toBeDefined();
+      expect(admin.role).toBe(ROLES.ADMIN);
+      expect(admin.isEmailVerified).toBe(true);
+
+      // Verify persistence in the database
+      const userInDb = await User.findOne({ email: adminEmail });
+      expect(userInDb.role).toBe(ROLES.ADMIN);
+      expect(userInDb.isEmailVerified).toBe(true);
+      expect(userInDb.accountStatus).toBe('active');
+    });
+
+    it('login as admin returns role: admin and grants access to admin routes', async () => {
+      const loginRes = await request(app)
+        .post('/api/v1/auth/login')
+        .send({
+          email: adminEmail,
+          password: testPassword
+        });
+
+      expect(loginRes.status).toBe(200);
+      expect(loginRes.body.success).toBe(true);
+      expect(loginRes.body.data.user.role).toBe(ROLES.ADMIN);
+      expect(loginRes.body.data.token).toBeDefined();
+
+      const adminToken = loginRes.body.data.token;
+
+      // Access protected admin-only route (/api/v1/admin/users)
+      const adminRouteRes = await request(app)
+        .get('/api/v1/admin/users')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(adminRouteRes.status).toBe(200);
+      expect(adminRouteRes.body.success).toBe(true);
+    });
+
+    it('normal user login returns role: user and is blocked from admin routes with 403', async () => {
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(testPassword, salt);
+      await User.deleteMany({ email: normalUserEmail });
+
+      await User.create({
+        name: 'Regular Customer',
+        email: normalUserEmail,
+        passwordHash,
+        role: ROLES.USER,
+        isEmailVerified: true,
+        accountStatus: 'active'
+      });
+
+      const loginRes = await request(app)
+        .post('/api/v1/auth/login')
+        .send({
+          email: normalUserEmail,
+          password: testPassword
+        });
+
+      expect(loginRes.status).toBe(200);
+      expect(loginRes.body.success).toBe(true);
+      expect(loginRes.body.data.user.role).toBe(ROLES.USER);
+
+      const userToken = loginRes.body.data.token;
+
+      // Attempt unauthorized access to protected admin route
+      const adminRouteRes = await request(app)
+        .get('/api/v1/admin/users')
+        .set('Authorization', `Bearer ${userToken}`);
+
+      expect(adminRouteRes.status).toBe(403);
+      expect(adminRouteRes.body.success).toBe(false);
+      expect(adminRouteRes.body.message).toContain('Access denied');
     });
   });
 });
