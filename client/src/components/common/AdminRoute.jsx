@@ -17,7 +17,8 @@ export const AdminRoute = ({ children }) => {
     );
   }
 
-  if (!isAuthenticated || user?.role !== 'admin' || user?.isEmailVerified === false) {
+  const isVerified = Boolean(user && (user.isEmailVerified || user.isVerified || user.emailVerified));
+  if (!isAuthenticated || user?.role !== 'admin' || !isVerified) {
     const safeRedirect = sanitizeRedirectPath(location.pathname + location.search, '/');
     return <Navigate to={`/login?redirect=${encodeURIComponent(safeRedirect)}`} replace />;
   }

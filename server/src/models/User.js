@@ -60,6 +60,15 @@ const userSchema = new mongoose.Schema(
       default: false,
       index: true
     },
+    // Backward-compatibility fields for existing records/schemas
+    isVerified: {
+      type: Boolean,
+      index: true
+    },
+    emailVerified: {
+      type: Boolean,
+      index: true
+    },
     emailVerifiedAt: {
       type: Date,
       default: null
@@ -100,6 +109,36 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
   return bcrypt.compare(candidatePassword, this.passwordHash);
 };
 
+// Authoritative check across all verification field variations
+userSchema.methods.isVerifiedAccount = function () {
+  return Boolean(this.isEmailVerified || this.isVerified || this.emailVerified || this.emailVerifiedAt != null);
+};
+
+// Post-init hook: Ensure existing database documents with isVerified, emailVerified, or emailVerifiedAt reflect as verified
+userSchema.post('init', function () {
+  if (!this.isEmailVerified && (this.isVerified === true || this.emailVerified === true || this.emailVerifiedAt != null)) {
+    this.isEmailVerified = true;
+    this.isVerified = true;
+    this.emailVerified = true;
+    if (!this.emailVerifiedAt) {
+      this.emailVerifiedAt = new Date();
+    }
+  }
+});
+
+// Pre-save hook: Ensure all verification fields stay synchronized when persisting
+userSchema.pre('save', function (next) {
+  if (this.isEmailVerified || this.isVerified || this.emailVerified || this.emailVerifiedAt != null) {
+    this.isEmailVerified = true;
+    this.isVerified = true;
+    this.emailVerified = true;
+    if (!this.emailVerifiedAt) {
+      this.emailVerifiedAt = new Date();
+    }
+  }
+  next();
+});
+
 // Safe representation without sensitive fields
 userSchema.methods.toSafeObject = function () {
   const obj = this.toObject();
@@ -111,6 +150,13 @@ userSchema.methods.toSafeObject = function () {
   delete obj.emailVerificationTokenHash;
   delete obj.emailVerificationOtpHash;
   delete obj.emailVerificationLockedUntil;
+
+  // Unify verification status across all field conventions so frontend receives consistent state
+  const verified = Boolean(obj.isEmailVerified || obj.isVerified || obj.emailVerified || obj.emailVerifiedAt != null);
+  obj.isEmailVerified = verified;
+  obj.isVerified = verified;
+  obj.emailVerified = verified;
+
   return obj;
 };
 

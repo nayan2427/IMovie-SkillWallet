@@ -121,7 +121,7 @@ export const RegisterPage = () => {
 
           {/* Password */}
           <div className="mb-3">
-            <label className="form-label text-muted small">Password (at least 6 characters) *</label>
+            <label className="form-label text-muted small">Password (at least 10 characters) *</label>
             <div className="input-group">
               <span className="input-group-text bg-black border-secondary text-muted">
                 <Lock size={16} />
@@ -130,7 +130,7 @@ export const RegisterPage = () => {
                 id="register-password-input"
                 type="password"
                 required
-                minLength={6}
+                minLength={10}
                 className="form-control bg-black border-secondary text-light py-2"
                 placeholder="••••••••"
                 value={formData.password}
@@ -150,7 +150,7 @@ export const RegisterPage = () => {
                 id="register-confirm-password-input"
                 type="password"
                 required
-                minLength={6}
+                minLength={10}
                 className={`form-control bg-black text-light py-2 border-secondary ${
                   formData.confirmPassword && formData.password !== formData.confirmPassword ? 'is-invalid border-danger' : ''
                 }`}

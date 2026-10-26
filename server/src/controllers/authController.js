@@ -123,12 +123,50 @@ const checkForgotPasswordRateLimit = (req, email) => {
   enforceMapCapacity(forgotPasswordAttempts);
 };
 
+/**
+ * Helper to look up a user by email with case-insensitivity, trim,
+ * and Gmail dot / googlemail alias tolerance.
+ */
+export const findUserByEmail = async (email) => {
+  if (!email || typeof email !== 'string') return null;
+  const normalized = email.toLowerCase().trim();
+
+  // 1. Direct query with normalized email
+  let user = await User.findOne({ email: normalized });
+  if (user) return user;
+
+  // 2. Gmail / Googlemail dot & alias tolerance:
+  // In Gmail, user.name@gmail.com and username@gmail.com are the same account.
+  // If an existing account was saved with or without dots, match flexibly.
+  if (normalized.includes('@gmail.com') || normalized.includes('@googlemail.com')) {
+    const [localPart] = normalized.split('@');
+    const localClean = localPart.replace(/\+.*$/, '').replace(/\./g, '');
+    const pattern = '^' + localClean.split('').join('\\.?') + '(\\+[^@]*)?@(gmail|googlemail)\\.com$';
+    try {
+      user = await User.findOne({ email: { $regex: new RegExp(pattern, 'i') } });
+      if (user) return user;
+    } catch (e) {
+      // Fallback
+    }
+  }
+
+  return null;
+};
+
+export const isUserVerified = (user) => {
+  if (!user) return false;
+  if (typeof user.isVerifiedAccount === 'function') {
+    return user.isVerifiedAccount();
+  }
+  return Boolean(user.isEmailVerified || user.isVerified || user.emailVerified || user.emailVerifiedAt != null);
+};
+
 export const register = async (req, res, next) => {
   try {
     const { name, email, password, phone } = req.body;
     const normalizedEmail = email.toLowerCase().trim();
 
-    const existingUser = await User.findOne({ email: normalizedEmail });
+    const existingUser = await findUserByEmail(normalizedEmail);
     if (existingUser) {
       // Dummy hashing to equalize CPU timing against user enumeration
       await bcrypt.hash(password, 12);
@@ -138,7 +176,9 @@ export const register = async (req, res, next) => {
         {
           user: {
             email: normalizedEmail,
-            isEmailVerified: false
+            isEmailVerified: false,
+            isVerified: false,
+            emailVerified: false
           },
           email: normalizedEmail,
           requiresVerification: true
@@ -168,6 +208,8 @@ export const register = async (req, res, next) => {
       role: ROLES.USER,
       tokenVersion: 0,
       isEmailVerified: false,
+      isVerified: false,
+      emailVerified: false,
       emailVerifiedAt: null,
       emailVerificationTokenHash: tokenHash,
       emailVerificationOtpHash: otpHash,
@@ -226,8 +268,8 @@ export const verifyEmail = async (req, res, next) => {
       if (!user) {
         // If email was also passed, check if the account is already verified
         if (email) {
-          const verifiedUser = await User.findOne({ email: email.toLowerCase().trim() });
-          if (verifiedUser && verifiedUser.isEmailVerified) {
+          const verifiedUser = await findUserByEmail(email);
+          if (verifiedUser && isUserVerified(verifiedUser)) {
             return successResponse(res, { user: verifiedUser.toSafeObject() }, 'Email is already verified. You can now log in.');
           }
         }
@@ -241,7 +283,9 @@ export const verifyEmail = async (req, res, next) => {
 
       // Mark user as verified and invalidate token/OTP fields
       user.isEmailVerified = true;
-      user.emailVerifiedAt = new Date();
+      user.isVerified = true;
+      user.emailVerified = true;
+      user.emailVerifiedAt = user.emailVerifiedAt || new Date();
       user.emailVerificationTokenHash = null;
       user.emailVerificationOtpHash = null;
       user.emailVerificationExpiresAt = null;
@@ -259,13 +303,13 @@ export const verifyEmail = async (req, res, next) => {
     // Flow 2: 6-Digit OTP verification
     if (otp && email) {
       const normalizedEmail = email.toLowerCase().trim();
-      const user = await User.findOne({ email: normalizedEmail });
+      const user = await findUserByEmail(normalizedEmail);
 
       if (!user) {
         return errorResponse(res, 'No account found with this email address.', 404);
       }
 
-      if (user.isEmailVerified) {
+      if (isUserVerified(user)) {
         return successResponse(res, { user: user.toSafeObject() }, 'Email is already verified. You can log in.');
       }
 
@@ -346,7 +390,9 @@ export const verifyEmail = async (req, res, next) => {
 
       // Mark user as verified and invalidate token/OTP
       updatedUser.isEmailVerified = true;
-      updatedUser.emailVerifiedAt = new Date();
+      updatedUser.isVerified = true;
+      updatedUser.emailVerified = true;
+      updatedUser.emailVerifiedAt = updatedUser.emailVerifiedAt || new Date();
       updatedUser.emailVerificationTokenHash = null;
       updatedUser.emailVerificationOtpHash = null;
       updatedUser.emailVerificationExpiresAt = null;
@@ -375,10 +421,10 @@ export const resendVerification = async (req, res, next) => {
     }
 
     const normalizedEmail = email.toLowerCase().trim();
-    const user = await User.findOne({ email: normalizedEmail });
+    const user = await findUserByEmail(normalizedEmail);
 
     // Prevent user enumeration: generic success if user doesn't exist or is already verified
-    if (!user || user.isEmailVerified) {
+    if (!user || isUserVerified(user)) {
       return successResponse(
         res,
         null,
@@ -440,7 +486,7 @@ export const forgotPassword = async (req, res, next) => {
     const normalizedEmail = email.toLowerCase().trim();
     checkForgotPasswordRateLimit(req, normalizedEmail);
 
-    const user = await User.findOne({ email: normalizedEmail });
+    const user = await findUserByEmail(normalizedEmail);
     const genericMsg = 'If an account with that email address exists, a password reset link has been sent.';
 
     if (!user || user.accountStatus !== 'active') {
@@ -485,8 +531,18 @@ export const resetPassword = async (req, res, next) => {
 
     const resetTokenHash = crypto.createHash('sha256').update(token).digest('hex');
     const user = await User.findOne({
-      passwordResetTokenHash: resetTokenHash,
-      passwordResetExpiresAt: { $gt: new Date() }
+      $or: [
+        { passwordResetTokenHash: resetTokenHash },
+        { passwordResetToken: token }
+      ],
+      $and: [
+        {
+          $or: [
+            { passwordResetExpiresAt: { $gt: new Date() } },
+            { passwordResetExpires: { $gt: new Date() } }
+          ]
+        }
+      ]
     });
 
     if (!user || user.accountStatus !== 'active') {
@@ -496,8 +552,10 @@ export const resetPassword = async (req, res, next) => {
     const salt = await bcrypt.genSalt(12);
     user.passwordHash = await bcrypt.hash(password, salt);
     // Single-use token enforcement: clear token and expiry immediately
-    user.passwordResetTokenHash = null;
-    user.passwordResetExpiresAt = null;
+    user.passwordResetTokenHash = undefined;
+    user.passwordResetExpiresAt = undefined;
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
     user.tokenVersion = (user.tokenVersion || 0) + 1; // Invalidate all prior sessions immediately
     await user.save();
 
@@ -515,7 +573,7 @@ export const login = async (req, res, next) => {
     // Check progressive delay and rate limit before processing credentials
     await trackLoginAttempt(req, normalizedEmail);
 
-    const user = await User.findOne({ email: normalizedEmail });
+    const user = await findUserByEmail(normalizedEmail);
     if (!user) {
       // Dummy bcrypt for unknown users to equalize timing against enumeration
       await bcrypt.compare(password || '', DUMMY_BCRYPT_HASH);
@@ -530,8 +588,9 @@ export const login = async (req, res, next) => {
       return errorResponse(res, 'Invalid email or password credentials.', 401);
     }
 
-    // Return EMAIL_NOT_VERIFIED only after correct password
-    if (!user.isEmailVerified) {
+    // Check verification status across isEmailVerified, isVerified, emailVerified
+    const verified = isUserVerified(user);
+    if (!verified) {
       return errorResponse(
         res,
         'Your email address is not verified. Please verify your email before logging in.',
@@ -542,6 +601,15 @@ export const login = async (req, res, next) => {
           email: user.email
         }
       );
+    }
+
+    // If verified but legacy record didn't have isEmailVerified: true, heal it now
+    if (!user.isEmailVerified || !user.isVerified || !user.emailVerified) {
+      user.isEmailVerified = true;
+      user.isVerified = true;
+      user.emailVerified = true;
+      if (!user.emailVerifiedAt) user.emailVerifiedAt = new Date();
+      await user.save();
     }
 
     // Reject suspended/deleted users
@@ -614,15 +682,64 @@ export const logout = async (req, res) => {
 
 export const updateProfile = async (req, res, next) => {
   try {
-    const { name, phone, avatar } = req.body;
+    const { name, email, phone, avatar } = req.body;
     const user = await User.findById(req.user._id);
 
-    if (name) user.name = name;
-    if (phone !== undefined) user.phone = phone;
+    if (name) user.name = name.trim();
+    if (phone !== undefined) user.phone = phone.trim();
     if (avatar !== undefined) user.avatar = avatar;
 
+    let emailChanged = false;
+    if (email) {
+      const normalizedEmail = email.toLowerCase().trim();
+      if (normalizedEmail !== user.email) {
+        // Verify no other account has this email
+        const existing = await findUserByEmail(normalizedEmail);
+        if (existing && existing._id.toString() !== user._id.toString()) {
+          return errorResponse(res, 'This email address is already registered to another account.', 409);
+        }
+
+        // Email address changed: require re-verification before treating as verified
+        emailChanged = true;
+        user.email = normalizedEmail;
+        user.isEmailVerified = false;
+        user.isVerified = false;
+        user.emailVerified = false;
+        user.emailVerifiedAt = null;
+
+        const verificationToken = generateVerificationToken();
+        const verificationOtp = generateVerificationOtp();
+        const tokenHash = hashVerificationValue(verificationToken);
+        const otpHash = hashVerificationValue(verificationOtp);
+        const ttlMinutes = parseInt(env.EMAIL_VERIFICATION_TOKEN_TTL_MINUTES, 10) || 60;
+
+        user.emailVerificationTokenHash = tokenHash;
+        user.emailVerificationOtpHash = otpHash;
+        user.emailVerificationExpiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
+        user.emailVerificationAttempts = 0;
+        user.emailVerificationLockedUntil = null;
+        user.emailVerificationLastSentAt = new Date();
+        user.tokenVersion = (user.tokenVersion || 0) + 1; // Invalidate older sessions
+
+        try {
+          await emailService.sendVerificationEmail({
+            to: user.email,
+            name: user.name,
+            token: verificationToken,
+            otp: verificationOtp
+          });
+        } catch (emailErr) {
+          logger.error('Failed to send verification email on profile email change:', emailErr.message);
+        }
+      }
+    }
+
     await user.save();
-    return successResponse(res, { user: user.toSafeObject() }, 'Profile updated successfully.');
+    const message = emailChanged
+      ? 'Profile updated. A verification email has been sent to your new email address. Please verify your email.'
+      : 'Profile updated successfully.';
+
+    return successResponse(res, { user: user.toSafeObject(), emailChanged, requiresVerification: emailChanged }, message);
   } catch (error) {
     next(error);
   }

@@ -114,20 +114,54 @@ Before deploying the backend, ensure MongoDB Atlas accepts connections from clou
 | `JWT_ACCESS_EXPIRES_IN`| `7d` | Access token lifespan |
 | `REFRESH_TOKEN_SECRET` | *(64-character random string)* | Refresh token encryption |
 | `PAYMENT_PROVIDER` | `simulated` | `simulated` (or `razorpay` / `stripe`) |
-| `PAYMENT_TEST_MODE` | `true` | Allows instant demo bookings |
-| `SMTP_HOST` | `smtp.gmail.com` | SMTP email server |
-| `SMTP_PORT` | `587` | Standard TLS port |
-| `SMTP_SECURE` | `false` | `false` for port 587 STARTTLS |
-| `SMTP_USER` | `your_email@gmail.com` | Verified sending email |
-| `SMTP_PASS` | `xxxx xxxx xxxx xxxx` | 16-character Google App Password |
-| `EMAIL_FROM` | `IMovies Cinema <noreply@imovies.com>` | Sender header |
-| `EMAIL_VERIFICATION_TOKEN_TTL_MINUTES` | `60` | OTP validity period |
+| `EMAIL_PROVIDER` | `brevo` | Email provider: `brevo` (HTTPS API, required on Render) or `smtp` |
+| `BREVO_API_KEY` | `xkeysib-...` | Brevo API Key (generated from Brevo Dashboard -> SMTP & API -> API Keys) |
+| `EMAIL_FROM` | `IMovies Cinema <your_verified_sender@example.com>` | Sender header matching verified sender in Brevo / Gmail |
+| `EMAIL_VERIFICATION_TOKEN_TTL_MINUTES` | `60` | OTP & verification link validity period |
+| `SMTP_HOST` | `smtp.gmail.com` | (Optional) Fallback SMTP host for local dev |
+| `SMTP_PORT` | `587` | (Optional) Standard TLS port |
+| `SMTP_SECURE` | `false` | (Optional) `false` for port 587 STARTTLS |
+| `SMTP_USER` | `your_email@gmail.com` | (Optional) Fallback SMTP user |
+| `SMTP_PASS` | `xxxx xxxx xxxx xxxx` | (Optional) Google App Password |
 | `ADMIN_SEED_NAME` | `Cinema SuperAdmin` | Initial administrator name |
 | `ADMIN_SEED_EMAIL` | `admin@imovies.com` | Initial administrator email |
 | `ADMIN_SEED_PASSWORD`| *(Your strong admin password)* | Administrator password |
 | `ADMIN_SEED_PHONE` | `+919876543210` | Administrator contact |
 
+> [!IMPORTANT]
+> **Render Outbound SMTP Blocking & Brevo HTTPS API**:
+> Render's Free tier blocks all outbound SMTP ports (`25`, `465`, `587`) at the network firewall level to prevent spam abuse. As a result, traditional SMTP connections (including Gmail SMTP) time out in production on Render.
+>
+> To solve this, IMovies implements **Brevo (formerly Sendinblue) HTTPS API**:
+> 1. Create a free account at [Brevo.com](https://www.brevo.com/).
+> 2. Go to **SMTP & API** → **API Keys** → **Generate a new API key**.
+> 3. Go to **Senders, Domains & Dedicated IPs** → **Senders** and verify your sender email (e.g. `your_email@gmail.com`).
+> 4. In Render's Environment Variables, set:
+>    - `EMAIL_PROVIDER=brevo`
+>    - `BREVO_API_KEY=<your-brevo-api-key>`
+>    - `EMAIL_FROM=IMovies Cinema <your_verified_sender_email>`
+>
+> Because Brevo uses HTTPS (port 443) via `https://api.brevo.com/v3/smtp/email`, Render allows the requests and verification emails deliver in under 2 seconds. When `BREVO_API_KEY` is not present, the system automatically falls back to standard SMTP / mock transport for local development.
+
 6. Click **Create Web Service**.
+
+---
+
+## 🗄️ 4.1 Database Migration (Legacy Account Reverification Fix)
+
+If your existing MongoDB Atlas database already contains registered users who completed email verification under older schema field names (`isVerified: true`, `emailVerified: true`, or `emailVerifiedAt`), run the idempotent migration script once:
+
+```bash
+# In your local development terminal (connected to Atlas) or via Render One-Off Shell:
+npm run migrate:verification
+```
+
+This script:
+- Safely scans all user records
+- Identifies accounts with legacy verification flags
+- Sets `isEmailVerified: true`, `isVerified: true`, `emailVerified: true`, and `emailVerifiedAt = new Date()`
+- Is 100% idempotent and non-destructive: it never un-verifies or deletes any existing accounts.
+- Note: Even if you do not run this script manually, the runtime `User` model hooks and login controller automatically detect and heal legacy verification fields upon user login.
 7. Once deployed, test the health check endpoint:
    ```
    https://<your-backend-slug>.onrender.com/health

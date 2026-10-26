@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { loginUser, clearAuthError } from '../store/authSlice.js';
-import { Film, Mail, Lock, LogIn, Sparkles, AlertTriangle, ArrowRight, RefreshCw } from 'lucide-react';
+import { Film, Mail, Lock, LogIn, AlertTriangle, ArrowRight, RefreshCw } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { authService } from '../services/authService.js';
 import { sanitizeRedirectPath } from '../utils/sanitizeRedirect.js';
@@ -45,16 +45,6 @@ export const LoginPage = () => {
     } finally {
       setResending(false);
     }
-  };
-
-  const handleFillDemoUser = () => {
-    setEmail('john@example.com');
-    setPassword('User@123456');
-  };
-
-  const handleFillDemoAdmin = () => {
-    setEmail('admin@imovies.com');
-    setPassword('Admin@123456');
   };
 
   const isEmailNotVerified = authErrorCode === 'EMAIL_NOT_VERIFIED' || (error && error.toLowerCase().includes('not verified'));
@@ -110,7 +100,7 @@ export const LoginPage = () => {
 
         <form onSubmit={handleSubmit}>
           <div className="mb-3">
-            <label className="form-label text-muted small">Email Address</label>
+            <label htmlFor="login-email-input" className="form-label text-muted small">Email Address</label>
             <div className="input-group">
               <span className="input-group-text bg-black border-secondary text-muted">
                 <Mail size={16} />
@@ -128,7 +118,16 @@ export const LoginPage = () => {
           </div>
 
           <div className="mb-4">
-            <label className="form-label text-muted small">Password</label>
+            <div className="d-flex justify-content-between align-items-center mb-1">
+              <label htmlFor="login-password-input" className="form-label text-muted small mb-0">Password</label>
+              <Link
+                to="/forgot-password"
+                className="text-danger small text-decoration-none fw-semibold"
+                id="forgot-password-link"
+              >
+                Forgot Password?
+              </Link>
+            </div>
             <div className="input-group">
               <span className="input-group-text bg-black border-secondary text-muted">
                 <Lock size={16} />
@@ -161,32 +160,7 @@ export const LoginPage = () => {
           </button>
         </form>
 
-        {/* Demo Fast Fill Buttons */}
-        <div className="border-top border-secondary border-opacity-25 pt-3 mb-3">
-          <div className="text-muted small mb-2 text-center" style={{ fontSize: '0.75rem' }}>
-            <Sparkles size={12} className="text-warning me-1" /> Quick Demo Credentials:
-          </div>
-          <div className="d-flex gap-2">
-            <button
-              type="button"
-              className="btn btn-outline-secondary btn-sm w-50 py-1"
-              style={{ fontSize: '0.75rem' }}
-              onClick={handleFillDemoUser}
-            >
-              Demo User
-            </button>
-            <button
-              type="button"
-              className="btn btn-outline-warning btn-sm w-50 py-1 text-warning"
-              style={{ fontSize: '0.75rem' }}
-              onClick={handleFillDemoAdmin}
-            >
-              Demo Admin
-            </button>
-          </div>
-        </div>
-
-        <div className="text-center text-muted small">
+        <div className="text-center text-muted small border-top border-secondary border-opacity-25 pt-3">
           Don't have an account?{' '}
           <Link to="/register" className="text-danger text-decoration-none fw-semibold">
             Register here

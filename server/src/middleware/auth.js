@@ -60,7 +60,11 @@ export const authenticate = async (req, res, next) => {
       return errorResponse(res, 'User account is not active, suspended, or deleted.', 401);
     }
 
-    if (!user.isEmailVerified) {
+    const isVerified = typeof user.isVerifiedAccount === 'function'
+      ? user.isVerifiedAccount()
+      : Boolean(user.isEmailVerified || user.isVerified || user.emailVerified);
+
+    if (!isVerified) {
       return errorResponse(
         res,
         'Email verification required. Please verify your email before accessing this service.',

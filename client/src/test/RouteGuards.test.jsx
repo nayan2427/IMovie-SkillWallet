@@ -68,7 +68,7 @@ describe('Route Guards Verification (ProtectedRoute & AdminRoute)', () => {
     expect(screen.getByText('Verify Email Page Redirect Target')).toBeInTheDocument();
   });
 
-  it('renders children for verified authenticated users', () => {
+  it('renders children for verified authenticated users (isEmailVerified: true)', () => {
     renderWithAuth(
       <ProtectedRoute>
         <div>Secret Content</div>
@@ -76,6 +76,34 @@ describe('Route Guards Verification (ProtectedRoute & AdminRoute)', () => {
       {
         isAuthenticated: true,
         user: { name: 'Verified User', email: 'verified@test.com', isEmailVerified: true }
+      }
+    );
+
+    expect(screen.getByText('Secret Content')).toBeInTheDocument();
+  });
+
+  it('renders children for verified users with legacy isVerified: true field', () => {
+    renderWithAuth(
+      <ProtectedRoute>
+        <div>Secret Content</div>
+      </ProtectedRoute>,
+      {
+        isAuthenticated: true,
+        user: { name: 'Verified User', email: 'legacy@test.com', isVerified: true }
+      }
+    );
+
+    expect(screen.getByText('Secret Content')).toBeInTheDocument();
+  });
+
+  it('renders children for verified users with legacy emailVerified: true field', () => {
+    renderWithAuth(
+      <ProtectedRoute>
+        <div>Secret Content</div>
+      </ProtectedRoute>,
+      {
+        isAuthenticated: true,
+        user: { name: 'Verified User', email: 'legacy2@test.com', emailVerified: true }
       }
     );
 

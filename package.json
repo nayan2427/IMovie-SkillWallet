@@ -18,6 +18,7 @@
     "seed": "npm run seed --prefix server",
     "seed:admin": "npm run seed:admin --prefix server",
     "db:check": "npm run db:check --prefix server",
+    "migrate:verification": "npm run migrate:verification --prefix server",
     "test": "npm run test --prefix server && npm run test --prefix client",
     "test:server": "npm run test --prefix server",
     "test:client": "npm run test --prefix client"

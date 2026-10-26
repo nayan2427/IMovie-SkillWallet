@@ -9,28 +9,118 @@ class EmailService {
     this.initTransporter();
   }
 
+  getProvider() {
+    const configured = (process.env.EMAIL_PROVIDER || env.EMAIL_PROVIDER || '').trim().toLowerCase();
+    if (configured === 'brevo') {
+      return 'brevo';
+    }
+    if (configured === 'smtp') {
+      return 'smtp';
+    }
+    const apiKey = (process.env.BREVO_API_KEY || env.BREVO_API_KEY || '').trim();
+    if (apiKey) {
+      return 'brevo';
+    }
+    return 'smtp';
+  }
+
+  parseSender(rawFrom) {
+    const raw = (rawFrom || process.env.EMAIL_FROM || env.EMAIL_FROM || 'IMovies Cinema <noreply@imovies.com>').trim();
+    const angleIndex = raw.indexOf('<');
+    if (angleIndex !== -1 && raw.endsWith('>')) {
+      const namePart = raw.slice(0, angleIndex).replace(/"/g, '').trim();
+      const emailPart = raw.slice(angleIndex + 1, -1).trim();
+      return {
+        name: namePart || 'IMovies Cinema',
+        email: emailPart || 'noreply@imovies.com'
+      };
+    }
+    return {
+      name: 'IMovies Cinema',
+      email: raw.replace(/"/g, '').trim() || 'noreply@imovies.com'
+    };
+  }
+
+  getFromAddress() {
+    const host = process.env.SMTP_HOST || env.SMTP_HOST || '';
+    const user = process.env.SMTP_USER || env.SMTP_USER || '';
+    const emailFrom = process.env.EMAIL_FROM || env.EMAIL_FROM || '';
+
+    const isGmailSmtp =
+      host.toLowerCase().includes('gmail') ||
+      user.toLowerCase().endsWith('@gmail.com');
+
+    // Gmail SMTP strictly enforces that From address matches the authenticated Gmail account
+    // or a verified Google alias to pass SPF/DKIM/DMARC checks. Using an unverified domain like noreply@imovies.com
+    // causes receiving servers (Gmail, Outlook, Yahoo) to reject the email or route it to spam.
+    if (isGmailSmtp && user) {
+      const senderName = emailFrom
+        ? emailFrom.replace(/<.*>/, '').replace(/"/g, '').trim() || 'IMovies Cinema'
+        : 'IMovies Cinema';
+      return `"${senderName}" <${user}>`;
+    }
+
+    return emailFrom || (user ? `"IMovies Cinema" <${user}>` : 'IMovies Cinema <noreply@imovies.com>');
+  }
+
+  createTransportOptions() {
+    const isGmail =
+      (env.SMTP_HOST || '').toLowerCase().includes('gmail') ||
+      (env.SMTP_USER || '').toLowerCase().endsWith('@gmail.com');
+    const port = parseInt(env.SMTP_PORT, 10) || 587;
+    const secure = env.SMTP_SECURE === true || port === 465;
+    const pass = (env.SMTP_PASS || '').replace(/\s+/g, '');
+
+    if (isGmail) {
+      return {
+        service: 'gmail',
+        auth: {
+          user: env.SMTP_USER,
+          pass: pass
+        }
+      };
+    }
+
+    return {
+      host: env.SMTP_HOST,
+      port: port,
+      secure: secure,
+      auth: {
+        user: env.SMTP_USER,
+        pass: pass
+      }
+    };
+  }
+
   initTransporter() {
+    const provider = this.getProvider();
+    if (provider === 'brevo') {
+      const apiKey = (process.env.BREVO_API_KEY || env.BREVO_API_KEY || '').trim();
+      if (apiKey) {
+        logger.info('EmailService: Brevo HTTPS API configured as active email provider.');
+      } else if (isProduction()) {
+        logger.warn('EmailService: Production environment has no BREVO_API_KEY configured. Outbound email delivery disabled.');
+      }
+    }
+
     if (isProduction()) {
       if (env.SMTP_USER && env.SMTP_PASS) {
         try {
-          this.transporter = nodemailer.createTransport({
-            host: env.SMTP_HOST,
-            port: env.SMTP_PORT,
-            secure: env.SMTP_SECURE,
-            auth: {
-              user: env.SMTP_USER,
-              pass: env.SMTP_PASS
-            }
-          });
+          const transportOptions = this.createTransportOptions();
+          this.transporter = nodemailer.createTransport(transportOptions);
           this.isMock = false;
-          logger.info(`EmailService: Real SMTP configured with host ${env.SMTP_HOST}:${env.SMTP_PORT}`);
+          if (provider === 'smtp') {
+            logger.info(`EmailService: Real SMTP configured for user ${env.SMTP_USER}`);
+          }
         } catch (err) {
           logger.error('EmailService: Failed to configure production SMTP transporter:', err.message);
           this.transporter = null;
           this.isMock = false;
         }
       } else {
-        logger.warn('EmailService: Production environment has no SMTP credentials configured. Outbound email delivery disabled.');
+        if (provider === 'smtp') {
+          logger.warn('EmailService: Production environment has no SMTP credentials configured. Outbound email delivery disabled.');
+        }
         this.transporter = null;
         this.isMock = false;
       }
@@ -40,17 +130,10 @@ class EmailService {
     // Development & Test environments
     if (env.SMTP_USER && env.SMTP_PASS && env.NODE_ENV !== 'test') {
       try {
-        this.transporter = nodemailer.createTransport({
-          host: env.SMTP_HOST,
-          port: env.SMTP_PORT,
-          secure: env.SMTP_SECURE,
-          auth: {
-            user: env.SMTP_USER,
-            pass: env.SMTP_PASS
-          }
-        });
+        const transportOptions = this.createTransportOptions();
+        this.transporter = nodemailer.createTransport(transportOptions);
         this.isMock = false;
-        logger.info(`EmailService: Real SMTP configured with host ${env.SMTP_HOST}:${env.SMTP_PORT} (${env.SMTP_USER})`);
+        logger.info(`EmailService: Real SMTP configured (${env.SMTP_USER})`);
       } catch (err) {
         logger.error('EmailService: Failed to configure SMTP transporter:', err.message);
         this.fallbackToMock();
@@ -74,6 +157,148 @@ class EmailService {
     if (env.NODE_ENV === 'development') {
       logger.info('EmailService: Running in development mock mode (Verification codes and links logged for dev).');
     }
+  }
+
+  async sendViaBrevo({ to, name, subject, html, text, attachments, fromAddress }) {
+    const apiKey = (process.env.BREVO_API_KEY || env.BREVO_API_KEY || '').trim();
+
+    if (isProduction() && !apiKey) {
+      logger.error('EmailService: Outbound email delivery unavailable in production (BREVO_API_KEY missing).');
+      const deliveryError = new Error('Outbound email delivery unavailable in production (missing Brevo API key).');
+      deliveryError.statusCode = 502;
+      throw deliveryError;
+    }
+
+    const sender = this.parseSender(fromAddress);
+    const recipientName = name || (typeof to === 'string' ? to.split('@')[0] : 'User');
+
+    const payload = {
+      sender,
+      to: [{ email: to, name: recipientName }],
+      subject,
+      htmlContent: html,
+      textContent: text
+    };
+
+    if (attachments && attachments.length > 0) {
+      const brevoAttachments = attachments
+        .map((att) => ({
+          name: att.filename || att.name || 'attachment',
+          content: Buffer.isBuffer(att.content)
+            ? att.content.toString('base64')
+            : typeof att.content === 'string'
+              ? att.content
+              : ''
+        }))
+        .filter((att) => Boolean(att.content));
+
+      if (brevoAttachments.length > 0) {
+        payload.attachment = brevoAttachments;
+      }
+    }
+
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': apiKey,
+        'content-type': 'application/json',
+        accept: 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      let errorMsg = '';
+      try {
+        const errJson = await response.json();
+        errorMsg = errJson.message || errJson.error || JSON.stringify(errJson);
+      } catch {
+        errorMsg = await response.text().catch(() => '');
+      }
+
+      // Redact API key from any error message or logs
+      const sanitizedError = (errorMsg || response.statusText || 'Unknown Brevo error').replace(
+        new RegExp(apiKey, 'g'),
+        '[REDACTED]'
+      );
+      const error = new Error(`Brevo API Error (${response.status}): ${sanitizedError}`);
+      error.statusCode = response.status >= 500 ? 502 : response.status;
+      throw error;
+    }
+
+    const data = await response.json().catch(() => ({}));
+    const messageId = data.messageId || data.messageIds?.[0] || 'brevo-msg-id';
+
+    if (isProduction()) {
+      logger.info('Email sent successfully via Brevo HTTPS API.');
+    } else {
+      logger.info(`Email sent via Brevo to ${to} (MessageId: ${messageId})`);
+    }
+
+    return {
+      success: true,
+      messageId,
+      provider: 'brevo'
+    };
+  }
+
+  async sendViaSmtp({ to, name, subject, html, text, attachments, fromAddress }) {
+    if (isProduction() && (!this.transporter || this.isMock)) {
+      logger.error('EmailService: Outbound email delivery unavailable in production.');
+      const deliveryError = new Error('Outbound email delivery unavailable in production.');
+      deliveryError.statusCode = 502;
+      throw deliveryError;
+    }
+
+    const mailOptions = {
+      from: fromAddress || this.getFromAddress(),
+      to,
+      subject,
+      html,
+      text
+    };
+
+    if (attachments && attachments.length > 0) {
+      mailOptions.attachments = attachments;
+    }
+
+    try {
+      const info = await this.transporter.sendMail(mailOptions);
+      if (!this.isMock) {
+        if (isProduction()) {
+          logger.info('Email sent successfully via SMTP.');
+        } else {
+          logger.info(`Email sent via SMTP to ${to} (MessageId: ${info.messageId})`);
+        }
+      }
+      return {
+        success: true,
+        messageId: info.messageId || 'mock-id',
+        isMock: this.isMock,
+        previewUrl: nodemailer.getTestMessageUrl(info) || null,
+        provider: 'smtp'
+      };
+    } catch (err) {
+      if (isProduction()) {
+        logger.error('Failed to deliver email via SMTP in production.');
+      } else {
+        logger.error(`Failed to send email via SMTP to ${to}:`, err.message);
+      }
+      const deliveryError = new Error(`Failed to deliver email via SMTP: ${err.message}`);
+      deliveryError.statusCode = 502;
+      throw deliveryError;
+    }
+  }
+
+  /**
+   * Universal email sending function routing to Brevo HTTPS API or SMTP transporter
+   */
+  async sendMail(options) {
+    const provider = this.getProvider();
+    if (provider === 'brevo') {
+      return this.sendViaBrevo(options);
+    }
+    return this.sendViaSmtp(options);
   }
 
   /**
@@ -158,25 +383,16 @@ This verification link and OTP will expire in ${ttlMinutes} minutes.
 If you did not sign up for an IMovies account, please disregard this message.
 `;
 
-    const mailOptions = {
-      from: env.EMAIL_FROM,
-      to,
-      subject: 'Verify Your IMovies Account',
-      html: htmlContent,
-      text: plainText
-    };
-
-    if (isProduction() && (!this.transporter || this.isMock)) {
-      logger.error('EmailService: Outbound email delivery unavailable in production.');
-      const deliveryError = new Error('Failed to deliver verification email. Please try again later.');
-      deliveryError.statusCode = 502;
-      throw deliveryError;
-    }
-
     try {
-      const info = await this.transporter.sendMail(mailOptions);
+      const result = await this.sendMail({
+        to,
+        name,
+        subject: 'Verify Your IMovies Account',
+        html: htmlContent,
+        text: plainText
+      });
 
-      if (this.isMock) {
+      if (this.isMock || result.isMock) {
         if (env.NODE_ENV === 'development') {
           logger.info(`=======================================================`);
           logger.info(`📧 [DEV EMAIL MOCK] Verification Email for ${to}`);
@@ -184,28 +400,23 @@ If you did not sign up for an IMovies account, please disregard this message.
           logger.info(`🔗 Direct Verification Link: ${verificationUrl}`);
           logger.info(`=======================================================`);
         }
-      } else {
-        if (isProduction()) {
-          logger.info('Verification email sent successfully.');
-        } else {
-          logger.info(`Verification email sent to ${to} (MessageId: ${info.messageId})`);
-        }
       }
 
       return {
         success: true,
-        messageId: info.messageId || 'mock-id',
-        isMock: this.isMock,
-        previewUrl: nodemailer.getTestMessageUrl(info) || null
+        messageId: result.messageId || 'mock-id',
+        isMock: this.isMock || result.isMock || false,
+        previewUrl: result.previewUrl || null,
+        provider: result.provider
       };
     } catch (err) {
       if (isProduction()) {
-        logger.error('Failed to deliver verification email in production.');
+        logger.error('Failed to deliver verification email in production:', err.message);
       } else {
         logger.error(`Failed to send verification email to ${to}:`, err.message);
       }
-      const deliveryError = new Error('Failed to deliver verification email. Please verify your email address or try again later.');
-      deliveryError.statusCode = 502;
+      const deliveryError = new Error(`Failed to deliver verification email. ${err.message}`);
+      deliveryError.statusCode = err.statusCode || 502;
       throw deliveryError;
     }
   }
@@ -278,53 +489,39 @@ ${resetUrl}
 This link will expire in 15 minutes. If you did not request this, please ignore this message.
 `;
 
-    const mailOptions = {
-      from: env.EMAIL_FROM,
-      to,
-      subject: 'Reset Your IMovies Password',
-      html: htmlContent,
-      text: plainText
-    };
-
-    if (isProduction() && (!this.transporter || this.isMock)) {
-      logger.error('EmailService: Outbound email delivery unavailable in production.');
-      const deliveryError = new Error('Failed to deliver password reset email. Please try again later.');
-      deliveryError.statusCode = 502;
-      throw deliveryError;
-    }
-
     try {
-      const info = await this.transporter.sendMail(mailOptions);
+      const result = await this.sendMail({
+        to,
+        name,
+        subject: 'Reset Your IMovies Password',
+        html: htmlContent,
+        text: plainText
+      });
 
-      if (this.isMock) {
+      if (this.isMock || result.isMock) {
         if (env.NODE_ENV === 'development') {
           logger.info(`=======================================================`);
           logger.info(`📧 [DEV EMAIL MOCK] Password Reset Email for ${to}`);
           logger.info(`🔗 Reset Link: ${resetUrl}`);
           logger.info(`=======================================================`);
         }
-      } else {
-        if (isProduction()) {
-          logger.info('Password reset email sent successfully.');
-        } else {
-          logger.info(`Password reset email sent to ${to} (MessageId: ${info.messageId})`);
-        }
       }
 
       return {
         success: true,
-        messageId: info.messageId || 'mock-id',
-        isMock: this.isMock,
-        previewUrl: nodemailer.getTestMessageUrl(info) || null
+        messageId: result.messageId || 'mock-id',
+        isMock: this.isMock || result.isMock || false,
+        previewUrl: result.previewUrl || null,
+        provider: result.provider
       };
     } catch (err) {
       if (isProduction()) {
-        logger.error('Failed to deliver password reset email in production.');
+        logger.error('Failed to deliver password reset email in production:', err.message);
       } else {
         logger.error(`Failed to send password reset email to ${to}:`, err.message);
       }
-      const deliveryError = new Error('Failed to deliver password reset email. Please try again later.');
-      deliveryError.statusCode = 502;
+      const deliveryError = new Error(`Failed to deliver password reset email. ${err.message}`);
+      deliveryError.statusCode = err.statusCode || 502;
       throw deliveryError;
     }
   }
@@ -333,13 +530,6 @@ This link will expire in 15 minutes. If you did not request this, please ignore 
    * Sends a branded HTML booking confirmation email with ticket details and inline QR code
    */
   async sendBookingConfirmationEmail({ to, name, booking }) {
-    if (isProduction() && (!this.transporter || this.isMock)) {
-      logger.error('EmailService: Outbound email delivery unavailable in production.');
-      return {
-        success: false,
-        error: 'Failed to deliver booking confirmation email. Please try again later.'
-      };
-    }
 
     const show = booking.show || {};
     const movie = show.movie || {};
@@ -496,19 +686,17 @@ Please show this reference code or your QR code at the cinema gate.
 Enjoy your movie!
 `;
 
-    const mailOptions = {
-      from: env.EMAIL_FROM,
-      to,
-      subject: `Booking Confirmed! [${booking.bookingReference}] - ${movie.title || 'IMovies Cinema'}`,
-      html: htmlContent,
-      text: plainText,
-      attachments
-    };
-
     try {
-      const info = await this.transporter.sendMail(mailOptions);
+      const result = await this.sendMail({
+        to,
+        name,
+        subject: `Booking Confirmed! [${booking.bookingReference}] - ${movie.title || 'IMovies Cinema'}`,
+        html: htmlContent,
+        text: plainText,
+        attachments
+      });
 
-      if (this.isMock) {
+      if (this.isMock || result.isMock) {
         if (env.NODE_ENV === 'development') {
           logger.info(`=======================================================`);
           logger.info(`📧 [DEV EMAIL MOCK] Ticket Confirmation Email for ${to}`);
@@ -516,22 +704,17 @@ Enjoy your movie!
           logger.info(`💺 Seats: ${seatNumbers}`);
           logger.info(`=======================================================`);
         }
-      } else {
-        if (isProduction()) {
-          logger.info('Booking confirmation email sent successfully.');
-        } else {
-          logger.info(`Booking confirmation email sent to ${to} (MessageId: ${info.messageId})`);
-        }
       }
 
       return {
         success: true,
-        messageId: info.messageId || 'mock-id',
-        isMock: this.isMock
+        messageId: result.messageId || 'mock-id',
+        isMock: this.isMock || result.isMock || false,
+        provider: result.provider
       };
     } catch (err) {
       if (isProduction()) {
-        logger.error('Failed to deliver booking confirmation email in production.');
+        logger.error('Failed to deliver booking confirmation email in production:', err.message);
       } else {
         logger.error(`Failed to send booking confirmation email to ${to}:`, err.message);
       }

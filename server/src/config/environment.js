@@ -78,7 +78,9 @@ export const env = {
   SMTP_USER: process.env.SMTP_USER || '',
   SMTP_PASS: process.env.SMTP_PASS || '',
   EMAIL_FROM: process.env.EMAIL_FROM || 'IMovies Cinema <noreply@imovies.com>',
-  EMAIL_VERIFICATION_TOKEN_TTL_MINUTES: parseInt(process.env.EMAIL_VERIFICATION_TOKEN_TTL_MINUTES, 10) || 60
+  EMAIL_VERIFICATION_TOKEN_TTL_MINUTES: parseInt(process.env.EMAIL_VERIFICATION_TOKEN_TTL_MINUTES, 10) || 60,
+  EMAIL_PROVIDER: process.env.EMAIL_PROVIDER || '',
+  BREVO_API_KEY: process.env.BREVO_API_KEY || ''
 };
 
 // Fail fast at startup in production

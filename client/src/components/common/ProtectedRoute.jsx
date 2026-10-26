@@ -22,7 +22,8 @@ export const ProtectedRoute = ({ children }) => {
     return <Navigate to={`/login?redirect=${encodeURIComponent(safeRedirect)}`} replace />;
   }
 
-  if (user && user.isEmailVerified === false) {
+  const isVerified = Boolean(user && (user.isEmailVerified || user.isVerified || user.emailVerified));
+  if (user && !isVerified) {
     return <Navigate to={`/verify-email?email=${encodeURIComponent(user.email || '')}`} replace />;
   }
 
