@@ -4,6 +4,7 @@ import { movieService } from '../services/movieService.js';
 import { showService } from '../services/showService.js';
 import { LoadingSpinner } from '../components/common/LoadingSpinner.jsx';
 import { TrailerModal } from '../components/movies/TrailerModal.jsx';
+import { formatLocalDate, formatDisplayDate } from '../utils/dateUtils.js';
 import {
   Star,
   Clock,
@@ -24,18 +25,15 @@ export const MovieDetailsPage = () => {
   const { id } = useParams();
   const [movie, setMovie] = useState(null);
   const [shows, setShows] = useState([]);
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const d = new Date();
-    return d.toISOString().split('T')[0];
-  });
+  const [selectedDate, setSelectedDate] = useState(() => formatLocalDate(new Date()));
   const [loading, setLoading] = useState(true);
   const [isTrailerOpen, setIsTrailerOpen] = useState(false);
 
-  // Generate next 4 dates for date selector tabs
+  // Generate next 4 dates for date selector tabs using local calendar components
   const availableDates = Array.from({ length: 4 }).map((_, i) => {
     const d = new Date();
     d.setDate(d.getDate() + i);
-    const dateStr = d.toISOString().split('T')[0];
+    const dateStr = formatLocalDate(d);
     const dayLabel = i === 0 ? 'TODAY' : i === 1 ? 'TOMORROW' : d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
     const formatted = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     return { dateStr, dayLabel, formatted };
@@ -397,43 +395,64 @@ export const MovieDetailsPage = () => {
         <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
           <div>
             <div className="d-flex align-items-center gap-2 mb-1">
-              <span className="label-caps fw-bold" style={{ color: 'var(--imv-primary)' }}>
-                SCHEDULED SESSIONS
+              <span
+                className="label-caps fw-bold"
+                style={{ color: movie.status === 'coming_soon' ? 'var(--imv-gold)' : 'var(--imv-primary)' }}
+              >
+                {movie.status === 'coming_soon' ? 'PRE-RELEASE TITLE' : 'SCHEDULED SESSIONS'}
               </span>
             </div>
             <h2 className="font-display fw-bold text-white mb-0" style={{ fontSize: '1.85rem' }}>
-              Select Auditorium & Showtime
+              {movie.status === 'coming_soon' ? 'Premiere & Ticketing Information' : 'Select Auditorium & Showtime'}
             </h2>
           </div>
 
-          {/* Date Selector Tabs */}
-          <div className="d-flex align-items-center gap-2 overflow-auto pb-2">
-            {availableDates.map((item) => {
-              const isSelected = selectedDate === item.dateStr;
-              return (
-                <button
-                  key={item.dateStr}
-                  type="button"
-                  onClick={() => setSelectedDate(item.dateStr)}
-                  className={`d-flex flex-column align-items-center justify-content-center px-3 py-2 rounded-3 border-0 transition-all ${
-                    isSelected ? 'stitch-btn-primary' : 'stitch-btn-secondary'
-                  }`}
-                  style={{ minWidth: '95px' }}
-                >
-                  <span className="label-caps" style={{ opacity: 0.85, fontSize: '10px' }}>
-                    {item.dayLabel}
-                  </span>
-                  <span className="font-display fw-bold" style={{ fontSize: '13px' }}>
-                    {item.formatted}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          {/* Date Selector Tabs (Only shown when movie is currently showing or has scheduled shows) */}
+          {movie.status !== 'coming_soon' && (
+            <div className="d-flex align-items-center gap-2 overflow-auto pb-2">
+              {availableDates.map((item) => {
+                const isSelected = selectedDate === item.dateStr;
+                return (
+                  <button
+                    key={item.dateStr}
+                    type="button"
+                    onClick={() => setSelectedDate(item.dateStr)}
+                    className={`d-flex flex-column align-items-center justify-content-center px-3 py-2 rounded-3 border-0 transition-all ${
+                      isSelected ? 'stitch-btn-primary' : 'stitch-btn-secondary'
+                    }`}
+                    style={{ minWidth: '95px' }}
+                  >
+                    <span className="label-caps" style={{ opacity: 0.85, fontSize: '10px' }}>
+                      {item.dayLabel}
+                    </span>
+                    <span className="font-display fw-bold" style={{ fontSize: '13px' }}>
+                      {item.formatted}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Theatres & Shows List */}
-        {shows.length === 0 ? (
+        {movie.status === 'coming_soon' && shows.length === 0 ? (
+          <div
+            className="p-5 rounded-4 text-center"
+            style={{
+              background: 'var(--imv-surface-1)',
+              border: '1px solid var(--imv-border)'
+            }}
+          >
+            <Calendar size={48} className="mb-3" style={{ color: 'var(--imv-gold)', opacity: 0.85 }} />
+            <h4 className="font-display fw-bold text-white mb-2">
+              Tickets opening closer to premiere
+            </h4>
+            <p className="small mb-0" style={{ color: 'var(--imv-text-muted)', maxWidth: '560px', margin: '0 auto', lineHeight: '1.6' }}>
+              This title is scheduled for upcoming theatrical release{movie.releaseDate ? ` on ${new Date(movie.releaseDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}` : ''}. Advance ticket reservations and auditorium showtimes will open closer to the premiere date.
+            </p>
+          </div>
+        ) : shows.length === 0 ? (
           <div
             className="p-5 rounded-4 text-center"
             style={{
@@ -443,7 +462,7 @@ export const MovieDetailsPage = () => {
           >
             <Clapperboard size={48} className="text-muted mb-3 opacity-50" />
             <h4 className="font-display fw-bold text-white mb-1">
-              No shows scheduled for {new Date(selectedDate).toDateString()}
+              No shows scheduled for {formatDisplayDate(selectedDate)}
             </h4>
             <p className="small mb-0" style={{ color: 'var(--imv-text-muted)' }}>
               Please select another date above to view upcoming showtimes across our auditoriums.

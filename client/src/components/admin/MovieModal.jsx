@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
+import { formatLocalDate } from '../../utils/dateUtils.js';
 
 export const MovieModal = ({ isOpen, onClose, onSave, movie }) => {
   const [formData, setFormData] = useState({
@@ -11,7 +12,7 @@ export const MovieModal = ({ isOpen, onClose, onSave, movie }) => {
     genres: 'Action, Sci-Fi',
     languages: 'English, Hindi',
     duration: 120,
-    releaseDate: new Date().toISOString().split('T')[0],
+    releaseDate: formatLocalDate(new Date()),
     certification: 'UA',
     director: '',
     rating: 8.5,
@@ -29,7 +30,7 @@ export const MovieModal = ({ isOpen, onClose, onSave, movie }) => {
         genres: Array.isArray(movie.genres) ? movie.genres.join(', ') : movie.genres || '',
         languages: Array.isArray(movie.languages) ? movie.languages.join(', ') : movie.languages || '',
         duration: movie.duration || 120,
-        releaseDate: movie.releaseDate ? new Date(movie.releaseDate).toISOString().split('T')[0] : '',
+        releaseDate: movie.releaseDate ? formatLocalDate(movie.releaseDate) : '',
         certification: movie.certification || 'UA',
         director: movie.director || '',
         rating: movie.rating || 8.5,
@@ -45,7 +46,7 @@ export const MovieModal = ({ isOpen, onClose, onSave, movie }) => {
         genres: 'Action, Sci-Fi',
         languages: 'English, Hindi',
         duration: 120,
-        releaseDate: new Date().toISOString().split('T')[0],
+        releaseDate: formatLocalDate(new Date()),
         certification: 'UA',
         director: '',
         rating: 8.5,

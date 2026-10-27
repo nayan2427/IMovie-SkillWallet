@@ -31,4 +31,24 @@ describe('MovieCard Component', () => {
     expect(screen.getByText('Sci-Fi / Adventure')).toBeInTheDocument();
     expect(screen.getByText('Book Tickets')).toBeInTheDocument();
   });
+
+  it('renders COMING SOON badge and View Details button for unreleased movies', () => {
+    const comingSoonMovie = {
+      ...mockMovie,
+      _id: 'mock_movie_2',
+      title: 'Quantum Abyss',
+      status: 'coming_soon'
+    };
+
+    render(
+      <BrowserRouter>
+        <MovieCard movie={comingSoonMovie} />
+      </BrowserRouter>
+    );
+
+    expect(screen.getByText('Quantum Abyss')).toBeInTheDocument();
+    expect(screen.getByText('COMING SOON')).toBeInTheDocument();
+    expect(screen.getByText('View Details')).toBeInTheDocument();
+    expect(screen.queryByText('Book Tickets')).not.toBeInTheDocument();
+  });
 });

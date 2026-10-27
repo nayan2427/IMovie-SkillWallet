@@ -5,6 +5,7 @@ import { theatreService } from '../services/theatreService.js';
 import { MovieCard } from '../components/movies/MovieCard.jsx';
 import { TrailerModal } from '../components/movies/TrailerModal.jsx';
 import { LoadingSpinner } from '../components/common/LoadingSpinner.jsx';
+import { formatLocalDate } from '../utils/dateUtils.js';
 import {
   Play,
   Ticket,
@@ -35,13 +36,13 @@ export const HomePage = () => {
   const [selectedFormat, setSelectedFormat] = useState('All');
   const navigate = useNavigate();
 
-  // Next 4 dates for date pills
+  // Next 4 dates for date pills using local calendar components
   const datePills = Array.from({ length: 4 }).map((_, i) => {
     const d = new Date();
     d.setDate(d.getDate() + i);
     const dayLabel = i === 0 ? 'TODAY' : i === 1 ? 'TOMORROW' : d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
     const dateFormatted = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    return { dayLabel, dateFormatted, dateStr: d.toISOString().split('T')[0] };
+    return { dayLabel, dateFormatted, dateStr: formatLocalDate(d) };
   });
 
   useEffect(() => {
@@ -530,7 +531,7 @@ export const HomePage = () => {
                           className="stitch-btn-primary flex-grow-1 py-2 text-decoration-none small"
                         >
                           <Ticket size={16} />
-                          <span>Pre-Book Seats</span>
+                          <span>View Details</span>
                         </Link>
                       </div>
                     </div>

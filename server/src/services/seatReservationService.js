@@ -11,6 +11,7 @@ import { emailService } from './emailService.js';
 import {
   BOOKING_STATUS,
   PAYMENT_STATUS,
+  SHOW_STATUS,
   SEAT_STATUS,
   SEAT_CATEGORY,
   HOLD_EXPIRY_MINUTES,
@@ -140,6 +141,15 @@ class SeatReservationService {
     const show = await Show.findById(showId).populate('movie').populate('theatre').populate('screen');
     if (!show) {
       throw new Error('Show does not exist.');
+    }
+    if (show.status !== SHOW_STATUS.SCHEDULED) {
+      throw new Error(`This show is ${show.status} and cannot be booked.`);
+    }
+    if (show.movie?.status === 'coming_soon') {
+      throw new Error('Bookings are not yet open for this upcoming title.');
+    }
+    if (show.movie?.status === 'archived') {
+      throw new Error('This movie is no longer active in cinemas.');
     }
     if (new Date(show.startTime) <= new Date()) {
       throw new Error('This show has already started or concluded.');
